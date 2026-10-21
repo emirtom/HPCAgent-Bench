@@ -740,8 +740,8 @@ RUN set -eux; \
     test -f /opt/view/include/blaze/Blaze.h; \
     mpicc -show; \
     # gcc builds run on libgomp alone: a view library that NEEDS libomp maps a second runtime.
-    bad="$(for f in /opt/view/lib/*.so*; do readelf -d "$(readlink -f "${f}")" 2>/dev/null \
-      | grep -qE 'NEEDED.*\[(libomp|libiomp5)' && echo "${f}"; done)"; \
+    bad="$(for f in /opt/view/lib/*.so*; do if readelf -d "$(readlink -f "${f}")" 2>/dev/null \
+      | grep -qE 'NEEDED.*\[(libomp|libiomp5)'; then echo "${f}"; fi; done)"; \
     [ -z "${bad}" ] || { echo "gnu view libraries NEED LLVM libomp: ${bad}" >&2; exit 1; }
 
 # GPU-aware MPI gate. HARD, and it exists because the failure mode is silence.
