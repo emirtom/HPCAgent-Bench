@@ -31,6 +31,9 @@ stays free; ExternCall on GPU data passes device pointers in stream order.
   `[flavors.<key>]` in `plugin.toml`: a `FlavorOptimizer` and the shipped columns it `extends`, each adding the column
   `<extended>_<key>`. There is no separate tuner registry, and a removed column holds no colour slot: old rows still
   read and plot.
+- **One judge per node** holds one grading slot per socket (`JUDGE_SLOTS_PER_NODE`) and hands each grade the next
+  free slot, instead of one judge per socket with its agents dealt to it statically; `JUDGES_PER_NODE` still splits
+  the slots.
 - **Plugin subagents**: a packet's `agents` names a plugin's `agents/<name>.md`; claude runs them natively, the
   anthropic and openai harnesses through a `task` tool, with their tokens on the episode's usage log.
 - **CuPy** runs the NumPy reference with numpy bound to cupy; **numba fastmath** is a flavor of the numba column

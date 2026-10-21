@@ -45,7 +45,7 @@ from hpcagent_bench.dtypes import c_type, is_storage_only, storage_typedef
 from hpcagent_bench.frameworks.forked import RunResult, exception_header, run_forked
 from hpcagent_bench.fuzz import FuzzValue, safe_eval
 from hpcagent_bench.harness import precision_casts, timing
-from hpcagent_bench.harness.judge_scheduler import judge_gpu_slots
+from hpcagent_bench.harness.judge_scheduler import judge_slots
 from hpcagent_bench.harness.precision_casts import CastPlan, HostCasts, Regroup, storage_view_dtype
 from hpcagent_bench.harness.task import setup_declared_host_only
 from hpcagent_bench.support.array_module import is_array
@@ -583,7 +583,7 @@ def grading_cpus(slot: int | None) -> set[int]:
             groups[key] = cpu
     cores = sorted(groups.values())
     # Must agree with languages.ncores on the slot count.
-    nslots = judge_gpu_slots()
+    nslots = judge_slots()
     if slot is None or nslots < 2 or slot >= nslots:
         return set(cores)
     share = len(cores) // nslots
@@ -603,7 +603,7 @@ def check_grading_width(cpus: set[int], slot: int | None) -> None:
     launched = os.environ.get(LAUNCH_WIDTH_ENV, "")
     if not launched.isdigit():
         return
-    nslots = judge_gpu_slots()
+    nslots = judge_slots()
     width = int(launched) // nslots if slot is not None and nslots >= 2 else int(launched)
     if len(cpus) < width:
         raise OpenMPLaunchEnvError(
