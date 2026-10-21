@@ -23,6 +23,8 @@ from tests.problem_facts import problem as problem_line
 
 
 def load_driver(monkeypatch: pytest.MonkeyPatch, **env: str) -> types.ModuleType:
+    # The fake processes have no pid to cap.
+    monkeypatch.setenv("AGENT_MEMORY_CAP_GB", "0")
     for key, value in env.items():
         monkeypatch.setenv(key, value)
     driver = fresh("agent_driver")
@@ -93,7 +95,7 @@ def start(
     monkeypatch.setattr(driver.subprocess, "Popen", fake_popen_class(statuses, seen))
     log_path = tmp_path / "claude.log"
     with log_path.open("w", encoding="utf-8") as log:
-        process, attempts = driver.start_agent(["claude"], tmp_path, {}, log, log_path, _UNPINNED)
+        process, attempts = driver.start_agent(["claude"], tmp_path, {}, log, log_path, _UNPINNED, 0)
     return process, attempts, log_path
 
 
@@ -192,7 +194,7 @@ def test_only_so_many_agents_start_at_once(monkeypatch: pytest.MonkeyPatch, tmp_
         def run(workdir: pathlib.Path = workdir) -> None:
             log_path = workdir / "claude.log"
             with log_path.open("w", encoding="utf-8") as log:
-                driver.start_agent(["claude"], workdir, {}, log, log_path, _UNPINNED)
+                driver.start_agent(["claude"], workdir, {}, log, log_path, _UNPINNED, 0)
 
         threads.append(threading.Thread(target=run))
     for thread in threads:

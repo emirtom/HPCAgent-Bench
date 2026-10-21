@@ -19,6 +19,9 @@ idle, with every property above still holding.
 import ast
 import os
 import pathlib
+import resource
+import subprocess
+import sys
 import types
 from collections.abc import Callable
 from types import ModuleType
@@ -126,7 +129,7 @@ def test_pinning_a_process_that_already_exited_is_survivable(driver: types.Modul
 
     log_path = tmp_path / "claude.log"
     with pathlib.Path(log_path).open("w") as log:
-        driver.pin(Dead(), [0, 1], log)
+        driver.pin(Dead(), [0, 1], 0, log)
     assert "could not pin" in log_path.read_text()
 
 
@@ -139,7 +142,7 @@ def test_no_cpus_means_no_syscall_and_no_log_noise(driver: types.ModuleType, tmp
 
     log_path = tmp_path / "claude.log"
     with pathlib.Path(log_path).open("w") as log:
-        driver.pin(Dead(), [], log)
+        driver.pin(Dead(), [], 0, log)
     assert log_path.read_text() == ""
 
 
@@ -194,3 +197,26 @@ def test_a_shipped_setup_gets_the_node_divided_by_its_own_agent_count(
     and the full 120 pool. Each agent holds at least the floor of the division -- 4 CPUs, not 2."""
     node(192)
     assert min(len(driver.agent_cpus(i, agents)) for i in range(agents)) == share
+
+
+def test_a_pinned_agent_holds_at_most_its_memory_share(driver: types.ModuleType, tmp_path: pathlib.Path) -> None:
+    """One agent's runaway test program must not exhaust the node every agent shares: ``pin`` caps the private
+    memory of the agent's process (what it forks inherits the limit)."""
+    cap = 512 * 2**20
+    with subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"]) as process:
+        with (tmp_path / "claude.log").open("w") as log:
+            driver.pin(process, [], cap, log)
+        assert resource.prlimit(process.pid, resource.RLIMIT_DATA) == (cap, cap)
+        process.kill()
+
+
+def test_the_memory_share_divides_the_node_over_its_agents_unless_named(
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(driver.AGENT_MEMORY_CAP_ENV, raising=False)
+    ram = os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+    assert driver.agent_memory_cap(4) == int(ram * driver.AGENT_MEMORY_SHARE) // 4
+    monkeypatch.setenv(driver.AGENT_MEMORY_CAP_ENV, "2")
+    assert driver.agent_memory_cap(4) == 2 * 2**30
+    monkeypatch.setenv(driver.AGENT_MEMORY_CAP_ENV, "0")
+    assert driver.agent_memory_cap(4) == 0
