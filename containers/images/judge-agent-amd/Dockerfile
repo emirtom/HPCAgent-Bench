@@ -552,7 +552,8 @@ RUN set -eux; \
       '  - superlu' \
       '  - superlu-dist +openmp +parmetis ~rocm ldflags=-L/opt/gcc/lib64' \
       '  - mumps +mpi +metis +parmetis +scotch +ptscotch +openmp +shared' \
-      '  - strumpack +mpi +openmp +parmetis +scotch ~cuda ~rocm' \
+      '  # strumpack: slate +rocm and butterflypack link libomp, and an unpinned compiler is rocmcc.' \
+      "  - strumpack +mpi +openmp +parmetis +scotch ~cuda ~rocm ~slate ~butterflypack %gcc@${GCC_VERSION}" \
       '  # hypre is the ONE library here without a GPU build, and the box it is in is closed on' \
       '  # three sides. hypre@3 carries requires("+umpire") with depends_on("umpire+c+rocm");' \
       '  # umpire@2026.07 accepts only cxxstd=20 or 23, and its HIP units are compiled by ROCm' \
@@ -574,8 +575,9 @@ RUN set -eux; \
       "  - petsc +mpi +metis +hypre +mumps ~superlu-dist ~strumpack +suite-sparse +scalapack +hdf5 +fftw ~rocm +shared %gcc@${GCC_VERSION}" \
       "  - slepc +arpack %gcc@${GCC_VERSION}" \
       '  # sundials had no provider at all: its entry declares -lsundials_core, which exists only' \
-      '  # from SUNDIALS 7, so a distro 6.x fails on that token alone. Spack ships 7.x, with rocm.' \
-      "  - sundials +openmp ~cuda +rocm amdgpu_target=$(echo "${ROCM_ARCH}" | tr ";" ",") ldflags=-L/opt/gcc/lib64" \
+      '  # from SUNDIALS 7, so a distro 6.x fails on that token alone. Spack ships 7.x. HB links the serial' \
+      '  # CVODE only, and +rocm or an unpinned compiler builds nvecopenmp on libomp.' \
+      "  - sundials +openmp ~cuda ~rocm ldflags=-L/opt/gcc/lib64 %gcc@${GCC_VERSION}" \
       '  view:' \
       '    default:' \
       '      root: /opt/view' \
