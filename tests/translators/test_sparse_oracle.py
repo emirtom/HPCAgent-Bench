@@ -45,17 +45,11 @@ def test_sparse_kernel_matches_scipy(kernel: "so.SparseKernel", config: str, see
     assert res.ok, f"{kernel.short}/{config} (seed={seed}): {res.detail}"
 
 
-#: (kernel, layout) pairs numba's unpacked ABI cannot lower: the buffers fix no extent the product needs.
-NUMBA_UNLOWERED = {("spmm", "coo"): "coo buffers fix no extent: the inner dimension NK is not readable"}
-
-
 @isolated
 @pytest.mark.skipif(not KERNEL_CONFIGS, reason="no sparse kernels discovered")
 @pytest.mark.parametrize(("kernel", "config"), KERNEL_CONFIGS, ids=KC_IDS)
 def test_sparse_kernel_numba_matches_scipy(kernel: "so.SparseKernel", config: str) -> None:
     """Every layout of every sparse kernel lowers to numba over its unpacked buffers and matches scipy."""
-    if (kernel.short, config) in NUMBA_UNLOWERED:
-        pytest.skip(NUMBA_UNLOWERED[kernel.short, config])
     res = so.run_kernel(kernel, seed=0, config_name=config, backend="numba")
     assert res.ok, f"{kernel.short}/{config}: {res.detail}"
 
