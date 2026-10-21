@@ -4,8 +4,8 @@ Every plugin adds optimizers, of two kinds:
 
 - a **method** an LLM agent runs: a packet with its skill pages, method text, agent tools and judge routes
   (`plugins/autokernel`, the NestForge example below);
-- a **tuner** that runs without an LLM: a `TunerOptimizer` and the DaCe stages it tunes, each a framework column
-  run as `hpcagent-bench agent <column>` ([Tuners](#tuners); Alloy ships one).
+- a **flavor** that runs without an LLM: a `FlavorOptimizer` run over shipped columns, each pairing a framework
+  column run as `hpcagent-bench agent <column>` ([Flavors](#flavors); Alloy ships one).
 
 A plugin lives in a folder of its own. The plugins
 shipped with the repository live in `plugins/`; a plugin of your own can be dropped in beside them, kept anywhere
@@ -15,7 +15,7 @@ else and named in `HPCAGENT_BENCH_USER_PLUGIN_DIRS`, or shipped inside an instal
 
 ```
 my_plugin/
-  plugin.toml              # the manifest: name, description, packets, tuners
+  plugin.toml              # the manifest: name, description, packets, flavors
   __init__.py              # optional; the folder is imported as a package either way
   tools/<tool>.py          # agent-side @tool modules
   routes/<route>.py        # judge-side @route modules
@@ -97,23 +97,22 @@ def my_tool(judge: Judge, request: RouteRequest) -> None:
 The router relays every request it does not answer itself. A `POST` reaches the handler only from an episode the
 run started, carrying that episode's token, as on `/score`; the judge has already checked the rank.
 
-## Tuners
+## Flavors
 
-A `[tuners.<key>]` block registers a tuner and one column `dace_<arch>_<stage>_<key>` per DaCe stage it tunes:
+A `[flavors.<key>]` block adds one column `<extended>_<key>` per shipped column it `extends`:
 
 ```toml
-[tuners.alloy_profile]
-name = "Alloy profile"                    # printed beside the stage on a figure
+[flavors.alloy_profile]
+name = "Alloy profile"                    # printed after the extended column's name on a figure
 full_name = "Alloy (profiled)"            # printed by a table
 optimizer = "alloy.hb_plugin.tuners:AlloyProfileOptimizer"
-dace = ["cpu_canon", "cpu_parallel", "cpu_autoopt"]
+extends = ["dace_cpu_canon", "dace_cpu_parallel", "dace_cpu_autoopt"]
 ```
 
-`optimizer` names a subclass of `hpcagent_bench.harness.optimizers.TunerOptimizer`. It implements
-`tune(task, pipeline)`: tune the SDFG the column's pipeline (`canon_cpu`, ...) produces and return
+`optimizer` names a subclass of `hpcagent_bench.harness.optimizers.FlavorOptimizer`. It implements
+`tune(task, pipeline)`: optimize what the extended column's pipeline (`canon_cpu`, ...) produces and return
 `self.deliver(task, code, link)`, the library the judge grades. A folder plugin's module imports as
-`hpcagent_bench_plugins.<name>.<module>`. The columns register after every shipped one; a key the repository retired
-(Alloy's) takes back its slot, so its figures keep their colours.
+`hpcagent_bench_plugins.<name>.<module>`. The columns register after every shipped one.
 
 ## Where plugins come from
 

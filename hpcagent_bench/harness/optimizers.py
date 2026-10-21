@@ -1,7 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Non-AI optimizers (NoOp, BLAS, Pluto, PPCG, plugin tuners) behind the agent contract, so the harness runs them
+"""Non-AI optimizers (NoOp, BLAS, Pluto, PPCG, plugin flavors) behind the agent contract, so the harness runs them
 exactly like an LLM agent; :func:`optimizer_registry` names them for ``hpcagent-bench agent``."""
 
 import functools
@@ -38,7 +38,7 @@ __all__ = [
     "NoOpOptimizer",
     "PlutoOptimizer",
     "PpcgHipOptimizer",
-    "TunerOptimizer",
+    "FlavorOptimizer",
     "agent_class",
     "call_argument",
     "emit_scops",
@@ -48,7 +48,7 @@ __all__ = [
     "pluto_source",
     "polyhedral_binding",
     "ppcg_hip_sources",
-    "tuner_agent",
+    "flavor_agent",
 ]
 
 
@@ -287,9 +287,9 @@ class PpcgHipOptimizer(Agent):
         return Submission(language=Language.HIP, source=host, device_source=device)
 
 
-class TunerOptimizer(LibraryOptimizer):
-    """An autotuning DaCe flavor (a tuner a plugin registers): it tunes the SDFG of the flavor's pipeline and
-    delivers a library; constructed with the flavor's name, which its rows carry."""
+class FlavorOptimizer(LibraryOptimizer):
+    """An optimizer flavor a plugin registers (``[flavors.<key>]``): it optimizes the output of the extended column's
+    pipeline and delivers a library; constructed with the flavor's name, which its rows carry."""
 
     __slots__ = ("fname",)
 
@@ -305,11 +305,11 @@ class TunerOptimizer(LibraryOptimizer):
             raise NotImplementedError(f"{self.fname} runs on {column.arch.text}; got a {task.image} task")
         pipelines = column.pipelines
         if len(pipelines) != 1:
-            raise ValueError(f"{self.fname} names pipelines {pipelines}; a tuner flavor tunes exactly one")
+            raise ValueError(f"{self.fname} names pipelines {pipelines}; an optimizer flavor extends exactly one")
         return self.tune(task, pipelines[0])
 
     def tune(self, task: Task, pipeline: str) -> Submission:
-        """The library this tuner picks for ``task`` from ``pipeline``'s output."""
+        """The library this flavor picks for ``task`` from ``pipeline``'s output."""
         raise NotImplementedError
 
     def deliver(self, task: Task, code: str, link: Sequence[str]) -> Submission:
@@ -325,21 +325,21 @@ def agent_class(factory: Callable[..., Agent]) -> type[Agent]:
     return target
 
 
-def tuner_agent(adapter: str) -> type[TunerOptimizer]:
-    """The :class:`TunerOptimizer` a tuner's ``adapter`` (``package.module:Class``, the plugin's) names."""
+def flavor_agent(adapter: str) -> type[FlavorOptimizer]:
+    """The :class:`FlavorOptimizer` a flavor's ``adapter`` (``package.module:Class``, the plugin's) names."""
     module_name, class_name = adapter.split(":", 1)
     value = modules.optional(importlib.import_module(module_name), class_name, type)
-    if not (isinstance(value, type) and issubclass(value, TunerOptimizer)):
-        raise TypeError(f"tuner adapter {adapter!r} names no TunerOptimizer")
+    if not (isinstance(value, type) and issubclass(value, FlavorOptimizer)):
+        raise TypeError(f"flavor adapter {adapter!r} names no FlavorOptimizer")
     return value
 
 
 def optimizer_registry() -> dict[str, Callable[..., Agent]]:
-    """Name -> non-AI optimizer factory: every registered :class:`Agent` and every autotuning flavor's adapter."""
+    """Name -> non-AI optimizer factory: every registered :class:`Agent` and every optimizer flavor's adapter."""
     classes: dict[str, Callable[..., Agent]] = dict(OPTIMIZERS)
     flavors: dict[str, Callable[..., Agent]] = {
-        name: functools.partial(tuner_agent(column.adapter), name)
+        name: functools.partial(flavor_agent(column.adapter), name)
         for name, column in FRAMEWORKS.entries.items()
-        if column.tuner is not None
+        if column.optimizer
     }
     return {**classes, **flavors}

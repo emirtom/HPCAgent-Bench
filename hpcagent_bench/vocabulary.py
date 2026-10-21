@@ -23,7 +23,6 @@ __all__ = [
     "MODELS",
     "OPTIMIZERS",
     "PACKETS",
-    "TUNERS",
     "Arch",
     "Column",
     "DaceStage",
@@ -31,7 +30,6 @@ __all__ = [
     "PacketDef",
     "PacketDevice",
     "Transform",
-    "TunerEntry",
     "check_vocabulary",
 ]
 
@@ -113,7 +111,7 @@ class Column:
 
     #: The name a figure prints: the compiler or library, not the flavor.
     display: str
-    #: ``package.module:Class`` of the Framework (or autotuning Agent), imported on first use.
+    #: ``package.module:Class`` of the Framework (or, for an optimizer flavor, its Agent), imported on first use.
     adapter: str
     #: The backend this column is a flavor of; columns sharing a base share an adapter.
     base: str
@@ -130,8 +128,8 @@ class Column:
     pipelines: tuple[str, ...] = ()
     #: The framework's own pipeline stage this flavor stops at (:class:`DaceStage` for DaCe).
     stage: Coded | None = None
-    #: The :data:`TUNERS` key of the autotuner run after the stage; the column's ``adapter`` is that tuner's.
-    tuner: str | None = None
+    #: An optimizer (an Agent, often a plugin's) runs this flavor, not a Framework; ``adapter`` names it.
+    optimizer: bool = False
     #: With ``flavor``: the DB column this name groups under; the name must be ``<column>_<flavor>``.
     column: str | None = None
     flavor: str | None = None
@@ -157,25 +155,6 @@ class Column:
         if (self.column is None) != (self.flavor is None):
             raise RegistryError(f"frameworks {self.display!r}: a flavor declares both column and flavor, or neither")
 
-    @property
-    def optimizer(self) -> bool:
-        """Whether a tuner (an autotuning Agent) runs this column, not a Framework."""
-        return self.tuner is not None
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class TunerEntry:
-    """An autotuner a column can run after its framework's stage: its display name and its
-    ``hpcagent_bench.harness.optimizers.TunerOptimizer`` (``package.module:Class``, often a plugin's)."""
-
-    display: str
-    full_name: str
-    adapter: str
-
-    def __post_init__(self) -> None:
-        if not ADAPTER_PATTERN.match(self.adapter):
-            raise RegistryError(f"tuners {self.display!r}: adapter {self.adapter!r} must read 'package.module:Class'")
-
 
 MODELS: Kind[ModelEntry] = Kind("models")
 #: Standalone optimizers by display name: a compiler or pipeline that stands where an LLM stands on a figure.
@@ -184,8 +163,6 @@ OPTIMIZERS: Kind[str] = Kind("optimizers")
 HARNESSES: Kind[str] = Kind("harnesses")
 #: The language a setup asked for, by display name.
 LANGUAGES: Kind[str] = Kind("languages")
-#: Autotuners a framework column runs after its stage (a plugin's tuners), by key.
-TUNERS: Kind[TunerEntry] = Kind("tuners")
 #: Where a kernel was timed, by display name.
 DEVICES: Kind[str] = Kind("devices")
 PACKETS: Kind[PacketDef] = Kind("packets")
@@ -204,9 +181,6 @@ def check_vocabulary() -> None:
         slotless = sorted(key for key, order in kind.orders.items() if order is None and (kind is not PACKETS or key))
         if slotless:
             raise RegistryError(f"{kind.name}: {slotless} have no slot, so no colour or marker")
-    for key, column in FRAMEWORKS.entries.items():
-        if column.tuner is not None and (column.tuner not in TUNERS or TUNERS[column.tuner].adapter != column.adapter):
-            raise RegistryError(f"frameworks {key!r}: tuner {column.tuner!r} is not registered with its adapter")
     for base in {column.base for column in FRAMEWORKS.entries.values()}:
         adapters = {
             column.adapter for column in FRAMEWORKS.entries.values() if column.base == base and not column.optimizer

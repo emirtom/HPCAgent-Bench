@@ -27,8 +27,10 @@ stays free; ExternCall on GPU data passes device pointers in stream order.
 ### Changed
 - **Polly** compiles with `-polly -polly-parallel` only; `-polly-parallel-force` and `-polly-process-unprofitable`
   forked loops too small to pay for it (llr40: 1.45x vs 1.38x geomean over clang -O3, worst kernel 0.24x vs 0.004x).
-- **Plugins are optimizers** of two kinds: methods (LLM packets such as AutoKernel) and tuners (no LLM). A plugin
-  declares tuners in `[tuners.<key>]` of its `plugin.toml`.
+- **Plugins are optimizers** of two kinds: methods (LLM packets such as AutoKernel) and flavors (no LLM). A flavor is
+  `[flavors.<key>]` in `plugin.toml`: a `FlavorOptimizer` and the shipped columns it `extends`, each adding the column
+  `<extended>_<key>`. There is no separate tuner registry, and a removed column holds no colour slot: old rows still
+  read and plot.
 - **CuPy** runs the NumPy reference with numpy bound to cupy; **numba fastmath** is a flavor of the numba column
   (`numba_fastmath`).
 - **Numba sparse**: every sparse layout (coo, dia, ell, bsr, csc) lowers to numba, forward, transposed and
