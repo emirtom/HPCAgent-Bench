@@ -299,7 +299,13 @@ RUN set -eux; \
     command -v hipcc; \
     command -v amdclang; \
     command -v rocprofv3; \
-    command -v rocprof-sys-sample
+    command -v rocprof-sys-sample; \
+    # ROCm's libgomp compat links point at LLVM libomp. mpich +rocm puts /opt/rocm/llvm/lib on the link
+    # path of every MPI dependent, so a gcc `-fopenmp` (-lgomp) there linked libomp: fftw's _omp
+    # libraries, sundials and superlu-dist then mapped libomp beside libgomp in gnu-context processes.
+    rm -f /opt/rocm/llvm/lib/libgomp.so /opt/rocm/llvm/lib/libgomp.so.1; \
+    ! ls /opt/rocm/llvm/lib/libgomp.so* 2>/dev/null \
+      || { echo "ROCm still ships a libgomp link in /opt/rocm/llvm/lib" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------------------------
 # 3. spack: bootstrap, configuration, and the externals that keep ROCm out of the build graph.
@@ -730,7 +736,11 @@ RUN set -eux; \
     test -f /opt/view/lib/libfftw3f.so; \
     test -f /opt/view/include/tbb/tbb.h; \
     test -f /opt/view/include/blaze/Blaze.h; \
-    mpicc -show
+    mpicc -show; \
+    # gcc builds run on libgomp alone: a view library that NEEDS libomp maps a second runtime.
+    bad="$(for f in /opt/view/lib/*.so*; do readelf -d "$(readlink -f "${f}")" 2>/dev/null \
+      | grep -qE 'NEEDED.*\[(libomp|libiomp5)' && echo "${f}"; done)"; \
+    [ -z "${bad}" ] || { echo "gnu view libraries NEED LLVM libomp: ${bad}" >&2; exit 1; }
 
 # GPU-aware MPI gate. HARD, and it exists because the failure mode is silence.
 #
