@@ -952,7 +952,7 @@ def derive_array_args(
 def numpy_reference_path(relative_path: str, module_name: str) -> pathlib.Path | None:
     """The kernel's numpy reference: ``<module>_numpy.py``, else ``<module>.py``, else ``None``; always ``None`` on the
     machine_learning track, whose reference is PyTorch (its ``<module>.py`` holds only the initializer)."""
-    if pathlib.PurePosixPath(relative_path).parts[0] == Track.MACHINE_LEARNING.text:
+    if pathlib.PurePosixPath(relative_path).parts[:1] == (Track.MACHINE_LEARNING.text,):
         return None
     base = paths.BENCHMARKS / relative_path
     for cand in (base / f"{module_name}_numpy.py", base / f"{module_name}.py"):

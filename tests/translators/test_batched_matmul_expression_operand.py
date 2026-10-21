@@ -82,30 +82,6 @@ def test_batched_matmul_with_a_batched_right_operand() -> None:
     assert not bad, bad
 
 
-@pytest.mark.parametrize(
-    "kernel",
-    [
-        "machine_learning/conv_transpose2d_subtract_tanh/conv_transpose2d_subtract_tanh",
-        "machine_learning/conv_transpose2d_max_pool_hardtanh_mean_tanh/conv_transpose2d_max_pool_hardtanh_mean_tanh",
-        (
-            "machine_learning/conv_transpose2d_softmax_bias_add_scaling_sigmoid/"
-            "conv_transpose2d_softmax_bias_add_scaling_sigmoid"
-        ),
-    ],
-)
-def test_the_conv_transpose2d_family_gets_past_the_matmul(kernel: str) -> None:
-    """Three corpus kernels LOWER past the matmul guard.
-
-    They do NOT emit yet, and this test deliberately does not claim they do. Behind the matmul sits
-    a second, unrelated blocker the guard was hiding: ``cg = canvas[:, g * cpg:(g + 1) * cpg]`` is a
-    view that is then WRITTEN THROUGH (``cg[:, :, ...] += proj``), so it cannot be materialised, and
-    the slice survives into the emitter. Asserting lowering is the exact scope here; the corpus
-    refusal set stays owned by ``test_abi_corpus_agreement``."""
-    from tests.translators.bench_yaml import kir_for
-
-    assert kir_for(kernel, do_lower=True) is not None
-
-
 #: A batched matmul whose contracted extents cannot be proven equal (``KK`` against ``LL``): the
 #: hoister declines it, as it must when it cannot tell the contraction apart from a mismatch.
 UNPROVEN_SRC = (

@@ -13,6 +13,7 @@ import yaml
 
 from hpcagent_bench import paths
 from hpcagent_bench.precommit_support import git_tracked
+from hpcagent_bench.categories import Track
 from hpcagent_bench.spec import (
     KERNELS,
     BenchSpec,
@@ -69,6 +70,8 @@ def test_every_kernel_resolves_under_a_track() -> None:
         assert track in TRACKS, f"{short}: track {track!r} not in {TRACKS}"
         kdir = paths.BENCHMARKS / spec.relative_path
         assert kdir.is_dir(), f"{short}: {kdir} is not a directory"
+        if spec.track is Track.MACHINE_LEARNING:
+            continue  # the reference is PyTorch (torch_baseline.coverage)
         ref = kdir / f"{spec.module_name}_numpy.py"
         assert ref.is_file(), f"{short}: missing numpy reference {ref}"
 

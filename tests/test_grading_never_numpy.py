@@ -15,9 +15,10 @@ import pytest
 
 from hpcagent_bench import config, modules, paths
 from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, SourceMode
-from hpcagent_bench.harness import grading, hidden_seeds, native_call, scoring
+from hpcagent_bench.harness import grading, hidden_seeds, native_call, scoring, torch_baseline
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
+from tests.test_torch_baseline import PLAIN_KERNEL, python_submission
 
 #: A scientific_computing kernel with a small S, a hand-written numba reference and a C form.
 SCICOMP = "jacobi_2d"
@@ -239,15 +240,13 @@ def test_a_machine_learning_grade_takes_its_oracle_from_the_compiled_torch_refer
 ) -> None:
     """The oracle of an ML grade is ``torch_baseline.reference_outputs`` on the grade's device kind (the
     child that times the torch-autotune denominator), never eager torch. The compile is stubbed with the
-    C reference's outputs, the other compiled reference of the kernel."""
-    spec = BenchSpec.load(ML)
+    eager model's outputs."""
+    spec = BenchSpec.load(PLAIN_KERNEL)
     datatype = scoring.graded_datatype(spec, "float64")
     seed = hidden_seeds.secret_seed_first()  # /score's public draw
-    task = Task(ML, SourceMode.RESTRICTED, Language.C)
-    c_reference = scoring.oracle_function(
-        Oracle.C, spec, task, scoring.binding_from_spec(spec), timeout=600.0, memory_gb=0.0
-    )
-    want = c_reference(grading._data_seeded(ML, Preset.S, datatype, seed))  # the stub's answer
+    task = Task(PLAIN_KERNEL, SourceMode.RESTRICTED, Language.C)
+    data = grading._data_seeded(PLAIN_KERNEL, Preset.S, datatype, seed)
+    want = torch_baseline.eager_outputs(spec, scoring.ieee_reference_data(dict(data)))  # the stub's answer
     asked: list[Baseline] = []
 
     def torch_outputs(_spec: BenchSpec, data: dict, kind: Baseline) -> dict[str, np.ndarray]:
@@ -257,9 +256,7 @@ def test_a_machine_learning_grade_takes_its_oracle_from_the_compiled_torch_refer
     monkeypatch.setattr(scoring.torch_baseline, "reference_outputs", torch_outputs)
     monkeypatch.setattr(scoring, "torch_time_samples", lambda _s, _b, _d, repeat, **_k: [1000] * repeat)
     with config.overridden("measurement.vary_inputs", False):
-        result = scoring.score(
-            grading.reference_submission(task, Language.C), task, preset=Preset.S, repeat=3, hidden=False, baseline=None
-        )
+        result = scoring.score(python_submission(), task, preset=Preset.S, repeat=3, hidden=False, baseline=None)
     assert asked, asked
     assert set(asked) == {Baseline.TORCH_AUTOTUNE_CPU}, asked
     assert result.oracle == "torch", (result.oracle, result.detail)

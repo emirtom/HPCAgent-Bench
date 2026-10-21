@@ -842,7 +842,7 @@ def test_fortran_abi_param_order_matches_binding() -> None:
 # numba/tvm autogen siblings hardcode fp32 outputs -- both out of scope here.)
 
 
-@pytest.mark.parametrize("kernel", ["gemm", "softmax"])
+@pytest.mark.parametrize("kernel", ["gemm", "covariance"])
 def test_fp16_emission_compiles_c_cpp(kernel: str) -> None:
     no = oracle()
     import pathlib
