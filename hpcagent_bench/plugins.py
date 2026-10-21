@@ -97,6 +97,7 @@ def packet_definition(plugin: Plugin, key: str, block: PacketBlock) -> PacketDef
         env=tuple(block.env.items()),
         method=block.method,
         tools=block.tools,
+        agents=block.agents,
         device=block.device,
         frozen=block.frozen,
         marker=block.marker,

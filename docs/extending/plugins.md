@@ -21,6 +21,7 @@ my_plugin/
   routes/<route>.py        # judge-side @route modules
   skills/<page>/SKILL.md   # skill pages; a packet: frontmatter block makes one a packet
   methods/<method>/method.md   # a method's prompt text (the prompt's {{HINTS}})
+  agents/<name>.md         # subagents a packet offers (Claude Code subagent files)
 ```
 
 The folder is imported as the package `hpcagent_bench_plugins.<name>`, so a route imports a helper next to it as
@@ -96,6 +97,27 @@ def my_tool(judge: Judge, request: RouteRequest) -> None:
 
 The router relays every request it does not answer itself. A `POST` reaches the handler only from an episode the
 run started, carrying that episode's token, as on `/score`; the judge has already checked the rank.
+
+## Subagents
+
+A packet offers subagents by name (`agents = ["reviewer"]` in its block); each is a plugin's `agents/<name>.md`, a
+Claude Code subagent file:
+
+```markdown
+---
+name: reviewer
+description: checks one candidate kernel for races and out-of-bounds accesses
+tools: bash, score
+---
+You review one kernel. ...
+```
+
+The driver stages the named files into the worker's `~/.claude/agents/`. The claude CLI runs them itself; the
+`anthropic` and `openai` harnesses offer a `task` tool (`subagent_type`, `prompt`) that runs one as a nested
+conversation with the file's body as its system prompt and only the `tools` it lists (all of its parent's when it
+lists none; never `task` itself). A subagent's calls go to the episode's `usage.jsonl`, so its tokens count against
+the same budget; its transcript is `<harness>.subagent-<n>-<name>.jsonl`. Other harnesses refuse a packet with
+subagents.
 
 ## Flavors
 

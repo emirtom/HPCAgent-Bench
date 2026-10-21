@@ -2550,7 +2550,10 @@ def run_agent(
     attempt_start_ms = 0
     # The worker's view of the filesystem: its own workdir, shared folder and kernel material, none of the run dir.
     seal = seal_argv(workdir, agent_dir, cpus)
-    if seal:
+    wants_agents = bool(environment.get(plugins.PACKET_AGENTS_ENV, "").strip())
+    if wants_agents and harness.name not in harnesses.SUBAGENT_HARNESSES:
+        raise SystemExit(f"the packet offers subagents, which harness {harness.name!r} cannot run")
+    if seal or wants_agents:
         environment["HOME"] = str(worker_home(workdir))
     # Compiler/package caches, node-local: no submission data lives there.
     cache_root = worker_cache_root(node_dir, workdir)
@@ -2563,8 +2566,9 @@ def run_agent(
         # Per attempt: only an argv built now names the previous crash's transcript to the seal.
         seal = seal_argv(workdir, agent_dir, cpus)
         # Per attempt: a relaunch wipes the workdir, HOME included.
-        if seal:
+        if seal or wants_agents:
             worker_home(workdir).mkdir(exist_ok=True)
+            plugins.stage_agents(worker_home(workdir), environment)
         command = [*seal, *harness.command(context)]
         # A runner APPENDS to its usage and end files, so an earlier run's would be read as this attempt's.
         for record in harness.records[1:]:

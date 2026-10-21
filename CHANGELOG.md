@@ -31,6 +31,8 @@ stays free; ExternCall on GPU data passes device pointers in stream order.
   `[flavors.<key>]` in `plugin.toml`: a `FlavorOptimizer` and the shipped columns it `extends`, each adding the column
   `<extended>_<key>`. There is no separate tuner registry, and a removed column holds no colour slot: old rows still
   read and plot.
+- **Plugin subagents**: a packet's `agents` names a plugin's `agents/<name>.md`; claude runs them natively, the
+  anthropic and openai harnesses through a `task` tool, with their tokens on the episode's usage log.
 - **CuPy** runs the NumPy reference with numpy bound to cupy; **numba fastmath** is a flavor of the numba column
   (`numba_fastmath`).
 - **Numba sparse**: every sparse layout (coo, dia, ell, bsr, csc) lowers to numba, forward, transposed and

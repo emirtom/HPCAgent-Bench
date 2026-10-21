@@ -25,6 +25,7 @@ __all__ = [
     "DEFAULT_SERVED_MODEL",
     "END_FILE",
     "HARNESSES",
+    "SUBAGENT_HARNESSES",
     "HARNESS_INTERPRETER",
     "OPENAI_RUNGS",
     "OPENHANDS_RUNGS",
@@ -502,3 +503,5 @@ RUNNERS: dict[str, Harness] = {
 
 #: Every harness the driver can launch: claude (built in ``agent_driver.py``) and the runners above.
 HARNESSES = (CLAUDE, *RUNNERS)
+#: The harnesses that run a packet's subagents: claude reads them itself, the native runners offer the task tool.
+SUBAGENT_HARNESSES = (CLAUDE, "anthropic", "openai")
