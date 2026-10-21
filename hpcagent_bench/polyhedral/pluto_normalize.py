@@ -77,7 +77,9 @@ STRIDED_FOR_RE = re.compile(
 
 SCOP_REGION_RE = re.compile(r"#pragma scop.*?#pragma endscop", re.DOTALL)
 #: One scop region with the indentation of its opening pragma.
-SCOP_BLOCK_RE = re.compile(r"^(?P<indent>[ \t]*)(?P<region>#pragma scop\b.*?#pragma endscop\b)", re.DOTALL | re.MULTILINE)
+SCOP_BLOCK_RE = re.compile(
+    r"^(?P<indent>[ \t]*)(?P<region>#pragma scop\b.*?#pragma endscop\b)", re.DOTALL | re.MULTILINE
+)
 
 
 def ident_re(name: str) -> "re.Pattern[str]":
