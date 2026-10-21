@@ -5,6 +5,13 @@
 Cleanup release. Results-database and wire schemas are unchanged: 0.3.0 reads every 0.2.x row. Rows of removed
 columns stay readable and plottable, not runnable.
 
+Pins: dace extended `af543a316`.
+
+### dace extended `baac24733` -> `af543a316`
+Merges dace main. Each modulo spelling has one meaning (`PyMod`/`FtnModulo` floored, `CMod`/`FtnMod` and a bare
+`%` truncating), and numeric casts work in symbolic expressions; a symbol a state reads before any assignment
+stays free; ExternCall on GPU data passes device pointers in stream order.
+
 ### Removed
 - **JAX, Pythran and the ISO-parallel C++ emit**: their columns, translators, frameworks and CI legs, and the
   agent sandbox allowlist and prompt entries. The images keep the packages.
@@ -23,6 +30,7 @@ columns stay readable and plottable, not runnable.
 - **Numba sparse**: every sparse layout (coo, dia, ell, bsr, csc) lowers to numba, forward, transposed and
   sparse x sparse (coo sized by its largest stored index), checked per layout against scipy.
 - README "For students" is "Getting started".
+- Top-level modules are grouped into `cpf/`, `polyhedral/`, `openmp/`, `export/` and `results/`.
 
 ### Fixed
 - `tsvc_2_s319` declares its accumulation length (`chain_length`), which the CPF determinism check needs.
