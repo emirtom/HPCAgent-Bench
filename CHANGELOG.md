@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.3.0 (2026-10)
+
+Cleanup release. Results-database and wire schemas are unchanged: 0.3.0 reads every 0.2.x row. Rows of removed
+columns stay readable and plottable, not runnable.
+
+### Removed
+- **JAX, Pythran and the ISO-parallel C++ emit**: their columns, translators, frameworks and CI legs, and the
+  agent sandbox allowlist and prompt entries. The images keep the packages.
+- **Alloy in core.** Alloy is a tuner plugin in its own repository (`alloy.hb_plugin`, entry point
+  `hpcagent_bench.plugins`); its adapter, extra and pin are gone from the bench.
+- **NumPy references of the machine_learning track.** Its reference is PyTorch: the kernel's `_torch.py`, else the
+  KernelBench model `kernelbench_map.yaml` names. A manifest declares `input_args`; the translators and the
+  numerical sweep skip the track.
+- **CLIs**: the translator entry points (translators run in-process, `numpyto_common.targets.emit`), `cpf`,
+  `run-benchmark` (use `run-framework`), `drain_judges.py` and `recoverable_report.py` (folded into
+  `merge_results.py --drain-url`), `packet_env.py` (`python -m hpcagent_bench.packets`).
+- Study tags `schedule-puzzles`, `transcendental-approx`, `npbench`, `polybench`; the dead cholesky/inv loop lowering.
+
+### Changed
+- **Plugins are optimizers** of two kinds: methods (LLM packets such as AutoKernel) and tuners (no LLM). A plugin
+  declares tuners in `[tuners.<key>]` of its `plugin.toml`.
+- **CuPy** runs the NumPy reference with numpy bound to cupy; **numba fastmath** is a flavor of the numba column
+  (`numba_fastmath`).
+- **Numba sparse**: every sparse layout with a stored-entry walk (coo, dia, ell, bsr, csc) lowers to numba,
+  forward and transposed, checked per layout against scipy.
+- HF export and Harbor ship the PyTorch reference for machine_learning rows.
+- README "For students" is "Getting started".
+
+### Fixed
+- `tsvc_2_s319` declares its accumulation length (`chain_length`), which the CPF determinism check needs.
+- Build and cache directories are excluded from package discovery (an editable install no longer races a build).
+
 ## 0.2.1 (2026-10)
 
 Pins: dace extended `baac24733` (overrides Alloy's), Alloy `d651788`, relayout `2718b2f`. No backwards
