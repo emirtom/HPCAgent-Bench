@@ -196,11 +196,10 @@ LINK_MIMALLOC = "-lmimalloc"
 # Multi-core autopar deltas, appended to the baseline; ``{n}`` becomes the core count (compose_autopar).
 
 #: LLVM Polly + OpenMP; both Polly options are required (either alone outlines nothing). Accepted flags prove
-#: nothing, so :func:`polly_capability` checks the object and a VACUOUS column is declined.
-POLLY_PAR = (
-    f"-mllvm -polly -mllvm -polly-parallel -mllvm -polly-parallel-force "
-    f"-mllvm -polly-process-unprofitable {_OPENMP_CLANG}"
-)
+#: nothing, so :func:`polly_capability` checks the object and a VACUOUS column is declined. Polly's own
+#: profitability model stays on: ``-polly-parallel-force`` and ``-polly-process-unprofitable`` parallelized loops
+#: too small to pay for a fork (llr40 geomean 1.38x vs 1.45x over clang -O3, worst kernel 0.004x vs 0.24x).
+POLLY_PAR = f"-mllvm -polly -mllvm -polly-parallel {_OPENMP_CLANG}"
 
 #: GCC autopar + Graphite: ``{n}`` bakes the thread count in at BUILD time. ``graphite-allow-codegen-errors`` is
 #: never set (it forces INCORRECT codegen).

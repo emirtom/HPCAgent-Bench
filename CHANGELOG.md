@@ -24,6 +24,8 @@ stays free; ExternCall on GPU data passes device pointers in stream order.
 - Study tags `schedule-puzzles`, `transcendental-approx`, `npbench`, `polybench`; the dead cholesky/inv loop lowering.
 
 ### Changed
+- **Polly** compiles with `-polly -polly-parallel` only; `-polly-parallel-force` and `-polly-process-unprofitable`
+  forked loops too small to pay for it (llr40: 1.45x vs 1.38x geomean over clang -O3, worst kernel 0.24x vs 0.004x).
 - **Plugins are optimizers** of two kinds: methods (LLM packets such as AutoKernel) and tuners (no LLM). A plugin
   declares tuners in `[tuners.<key>]` of its `plugin.toml`.
 - **CuPy** runs the NumPy reference with numpy bound to cupy; **numba fastmath** is a flavor of the numba column

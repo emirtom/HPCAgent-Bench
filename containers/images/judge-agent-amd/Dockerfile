@@ -649,12 +649,10 @@ ENV PATH=/opt/gcc/bin:/opt/view/bin:/opt/papi/bin:/opt/rocm/bin:${PATH} \
 #   * OpenMP offload really reaches amdgcn, checked on the emitted offload bundle rather than on
 #     the exit code.
 #
-# Polly is deliberately NOT probed here: parallelizer-gate.sh below already asks the question, and
-# asks it correctly. A bare `-mllvm -polly -mllvm -polly-parallel` outlines nothing even on an
-# LLVM whose Polly works -- measured on llvm 22.1.7, where the same source outlines 1 polly_subfn
-# and 4 libgomp calls once `-polly-parallel-force -polly-process-unprofitable` are added, which is
-# what the gate passes and what flags.POLLY_PAR contains. A second, weaker copy of a gate is how a
-# working toolchain gets rejected.
+# Polly is deliberately NOT probed here: parallelizer-gate.sh below already asks the question with
+# flags.POLLY_PAR on flags._AUTOPAR_PROBE_SOURCE (1 polly_subfn, 4 runtime calls on llvm 22.1.7). A
+# lone trivial loop outlines nothing under Polly's profitability model, so a second, smaller probe
+# here would reject a working toolchain.
 #
 # RECORDED, not enforced: GCC's OpenACC offload target. spack's gcc package exposes `+nvptx` and
 # NOTHING for amdgcn, so an amdgcn-amdhsa offload GCC is not reachable from any spack spec -- it

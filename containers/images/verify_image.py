@@ -154,8 +154,7 @@ COMPILE_PROBES = {
     "-O3 -floop-nest-optimize -fgraphite-identity -ftree-parallelize-loops=4 "
     "-floop-parallelize-all -fopenmp",
     "polly": "clang|void f(double*a,double*b,int n){for(int i=0;i<n;i++)a[i]=b[i]*2.0+1.0;}"
-    "\\nint main(void){return 0;}|-O3 -mllvm -polly -mllvm -polly-parallel "
-    "-mllvm -polly-parallel-force -mllvm -polly-process-unprofitable -fopenmp=libomp",
+    "\\nint main(void){return 0;}|-O3 -mllvm -polly -mllvm -polly-parallel -fopenmp=libomp",
 }
 
 
