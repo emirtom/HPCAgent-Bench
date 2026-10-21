@@ -9,7 +9,6 @@ library mapping another context's runtime is refused for it up front.
 """
 
 import argparse
-import json
 import os
 import pathlib
 import subprocess
@@ -17,7 +16,7 @@ import sys
 import tempfile
 from collections.abc import Sequence
 
-from hpcagent_bench import languages
+from hpcagent_bench import config, languages
 from hpcagent_bench.openmp import context as omp_context
 from hpcagent_bench.openmp import runtimes as openmp_runtimes
 from hpcagent_bench.categories import Language
@@ -75,20 +74,20 @@ def scan_entry(name: str, context: str) -> list[str] | None:
         ).stdout
     found: set[str] = set()
     for line in listing.splitlines():
-        _name, arrow, rest = line.strip().partition(" => ")
+        _, arrow, rest = line.strip().partition(" => ")
         real = os.path.realpath(rest.split()[0]) if arrow and rest.startswith("/") else ""
         if real and openmp_runtimes.RUNTIME_FILE.fullmatch(pathlib.PurePath(real).name):
             found.add(real)
     return sorted(found)
 
 
-def scan(contexts: Sequence[str] | None = None) -> dict[str, dict[str, list[str] | None]]:
+def scan(contexts: Sequence[str] | None = None) -> omp_context.Catalog:
     """The record for every ``contexts`` (default: those this host has), every catalog entry."""
     names = contexts if contexts is not None else [c for c in omp_context.CONTEXTS if omp_context.context_dir(c)]
     return {context: {name: scan_entry(name, context) for name in languages.load_libraries()} for context in names}
 
 
-def refusals(record: dict[str, dict[str, list[str] | None]]) -> dict[str, dict[str, str]]:
+def refusals(record: omp_context.Catalog) -> dict[str, dict[str, str]]:
     """``{context: {library: why}}`` for what :func:`omp_context.refusal_from` refuses, given ``record``."""
     found: dict[str, dict[str, str]] = {}
     for context, entries in record.items():
@@ -113,8 +112,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--check", action="store_true", help="exit 1 when blas or lapack is refused in a context")
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
     if args.root is not None:
-        from hpcagent_bench import config
-
         config.set_override(omp_context.ROOT_KEY, str(args.root))
     record = scan()
     for context, entries in record.items():
@@ -127,11 +124,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"{context:6s} {name:12s} {shown}")
     if args.write is not None:
         path = pathlib.Path(args.write) if args.write else omp_context.catalog_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        staged = path.with_name(f".{path.name}.{os.getpid()}")
-        written = omp_context.CATALOG_ADAPTER.dump_python(omp_context.CATALOG_ADAPTER.validate_python(record))
-        staged.write_text(json.dumps(written, indent=1, sort_keys=True) + "\n", encoding="utf-8")
-        staged.replace(path)
+        omp_context.write_catalog(record, path)
         print(f"wrote {path}")
     found = refusals(record)
     for context, reasons in found.items():

@@ -42,6 +42,7 @@ from hpcagent_bench import config
 from hpcagent_bench.openmp import runtimes as openmp_runtimes
 
 __all__ = [
+    "CATALOG_ADAPTER",
     "CATALOG_ENV",
     "CATALOG_FILE",
     "CATALOG_KEY",
@@ -58,6 +59,7 @@ __all__ = [
     "READELF_TIMEOUT_S",
     "ROOT_KEY",
     "RUNTIME_CONTEXT",
+    "Catalog",
     "CatalogMissing",
     "HasFamily",
     "catalog_path",
@@ -79,6 +81,7 @@ __all__ = [
     "read_catalog",
     "refusal_from",
     "spawn_needed",
+    "write_catalog",
 ]
 
 GNU = "gnu"
@@ -281,18 +284,27 @@ def context_runtime(context: str) -> str | None:
     return os.path.realpath(link) if link.exists() else None
 
 
-#: Validator of a catalog record: OpenMP context -> {field: values, or null}.
-CATALOG_ADAPTER: "pydantic.TypeAdapter[dict[str, dict[str, list[str] | None]]]" = pydantic.TypeAdapter(
-    dict[str, dict[str, list[str] | None]]
-)
+#: A catalog record: OpenMP context -> {library: runtime realpaths, or null}.
+Catalog = dict[str, dict[str, list[str] | None]]
+
+#: Validator of a catalog record.
+CATALOG_ADAPTER: "pydantic.TypeAdapter[Catalog]" = pydantic.TypeAdapter(Catalog)
 
 
 @functools.lru_cache(maxsize=8, typed=True)
-def read_catalog(path: str, mtime_ns: int) -> dict[str, dict[str, list[str] | None]]:
+def read_catalog(path: str, mtime_ns: int) -> Catalog:
     """The parsed catalog record at ``path`` (re-read when the file changes; ``pydantic.ValidationError`` when it
     is not a catalog)."""
     del mtime_ns  # the cache key only
     return CATALOG_ADAPTER.validate_json(pathlib.Path(path).read_bytes())
+
+
+def write_catalog(record: Catalog, path: pathlib.Path) -> None:
+    """Validate ``record`` and replace ``path`` with it atomically (a reader never sees a partial file)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    staged = path.with_name(f".{path.name}.{os.getpid()}")
+    staged.write_bytes(CATALOG_ADAPTER.dump_json(CATALOG_ADAPTER.validate_python(record), indent=1) + b"\n")
+    staged.replace(path)
 
 
 class CatalogMissing(RuntimeError):
@@ -305,7 +317,7 @@ def catalog_path() -> pathlib.Path:
     return pathlib.Path(named) if named else context_root() / CATALOG_FILE
 
 
-def catalog_record() -> dict[str, dict[str, list[str] | None]] | None:
+def catalog_record() -> Catalog | None:
     """The catalog record, or ``None`` on a host without OpenMP contexts (a login node, CI), which has nothing to
     refuse. A host with contexts and no readable catalog raises :class:`CatalogMissing`: the job start step
     ``python3 -m hpcagent_bench.openmp.catalog --write`` writes it, so a missing one is a job set up wrong."""
@@ -341,7 +353,7 @@ def library_refusal(name: str, context: str) -> str:
     return refusal_from(catalog_record(), name, context)
 
 
-def refusal_from(record: dict[str, dict[str, list[str] | None]] | None, name: str, context: str) -> str:
+def refusal_from(record: Catalog | None, name: str, context: str) -> str:
     """Why ``name`` may not be linked by a ``context`` build according to ``record``, or ``""``.
 
     The record says which OpenMP runtimes the library's build maps when it is linked in that context.
