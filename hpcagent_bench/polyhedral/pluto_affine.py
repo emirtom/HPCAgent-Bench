@@ -24,6 +24,7 @@ __all__ = [
     "KNOWN_POLYCC_ISSUES",
     "TRANS_TESTS",
     "PolyccIssue",
+    "C_COMMENT_RE",
     "body_nonaffine_reason",
     "has_scop",
     "scop_nonaffine_reason",
@@ -41,6 +42,10 @@ def has_scop(scop_c: str) -> bool:
     return "#pragma scop" in scop_c
 
 
+#: A C block or line comment.
+C_COMMENT_RE = re.compile(r"/\*.*?\*/|//[^\n]*", re.DOTALL)
+
+
 def scop_nonaffine_reason(scop_c: str) -> str | None:
     """Return the first non-affine array-subscript pattern across EVERY ``#pragma scop`` body in
     ``scop_c``, or ``None`` when every subscript index in every region is affine.
@@ -51,8 +56,10 @@ def scop_nonaffine_reason(scop_c: str) -> str | None:
     FAIL, not a skip. Text OUTSIDE the regions is not scanned: a translation unit may carry several
     scops (``numpyto_c.emit.pluto_scop_regions``) and what sits between them is plain C polycc never
     models. When no ``#pragma scop``/``#pragma endscop`` pair is present the whole string is scanned
-    (an already-extracted scop body)."""
-    bodies = re.findall(r"#pragma scop(.*?)#pragma endscop", scop_c, re.DOTALL) or [scop_c]
+    (an already-extracted scop body). Comments are not code: the translator echoes the NumPy source line
+    above each statement (``/* a[0, 3, i - 1:n] ... */``), whose brackets index nothing."""
+    code = C_COMMENT_RE.sub(" ", scop_c)
+    bodies = re.findall(r"#pragma scop(.*?)#pragma endscop", code, re.DOTALL) or [code]
     for body in bodies:
         reason = body_nonaffine_reason(body)
         if reason is not None:
