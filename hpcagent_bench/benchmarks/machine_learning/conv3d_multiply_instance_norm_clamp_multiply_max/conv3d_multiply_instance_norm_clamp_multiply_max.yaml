@@ -54,3 +54,5 @@ args:
 public:
   negative:
     clamp_min: "the lower clamp bound"
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, clamp_min, clamp_max, conv_weight, conv_bias, multiplier, instance_norm_eps, out, batch_size, in_channels, out_channels, depth, height, width, kernel_size]

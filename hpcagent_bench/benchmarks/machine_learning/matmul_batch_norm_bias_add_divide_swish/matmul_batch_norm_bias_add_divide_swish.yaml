@@ -31,3 +31,5 @@ args:
   out: {shape: "(batch_size, out_features)", out: true}
   bn_eps: 1.0e-05
   divide_value: 1.0
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, bn_eps, divide_value, matmul_weight, matmul_bias, bn_weight, bn_bias, bn_running_mean, bn_running_var, bias, out, out_features]

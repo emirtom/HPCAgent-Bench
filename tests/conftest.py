@@ -288,12 +288,6 @@ def pytest_configure(config: pytest.Config) -> None:
         "dace_lowering: emits and LOWERS (to_sdfg) each level-3 kernel's generated DaCe port, one "
         "spawned child per kernel under a hard timeout. Needs dace importable; minutes, not seconds.",
     )
-    config.addinivalue_line(
-        "markers",
-        "torch_agreement: runs every machine_learning port beside the upstream "
-        "KernelBench PyTorch model it was ported from. Needs CPU torch importable and the "
-        "third_party/KernelBench submodule checked out; minutes, not seconds.",
-    )
 
 
 @pytest.fixture(autouse=True)

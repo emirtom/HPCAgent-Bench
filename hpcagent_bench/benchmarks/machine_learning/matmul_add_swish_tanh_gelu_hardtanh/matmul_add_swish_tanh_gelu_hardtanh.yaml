@@ -25,3 +25,5 @@ args:
   matmul_bias: {shape: "(out_features,)", domain: [-0.1, 0.1]}
   add_value: {shape: "(out_features,)", domain: [-1.0, 1.0]}
   out: {shape: "(batch_size, out_features)", out: true}
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, matmul_weight, matmul_bias, add_value, out]

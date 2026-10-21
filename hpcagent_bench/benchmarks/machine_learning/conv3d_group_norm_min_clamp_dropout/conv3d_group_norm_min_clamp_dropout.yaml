@@ -65,3 +65,5 @@ args:
     shape: (batch_size, out_channels, depth - kernel_size + 1, height - kernel_size + 1, width - kernel_size + 1)
     out: true
   norm_eps: 1.0e-05
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, groups, min_value, max_value, conv_weight, conv_bias, norm_weight, norm_bias, norm_eps, out, batch_size, in_channels, out_channels, depth, height, width, kernel_size]

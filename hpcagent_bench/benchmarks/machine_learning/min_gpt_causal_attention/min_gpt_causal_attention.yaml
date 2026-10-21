@@ -34,3 +34,5 @@ args:
   c_proj_weight: (n_embd, n_embd)
   c_proj_bias: (n_embd,)
   out: {shape: "(batch_size, seq_len, n_embd)", out: true}
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, num_heads, c_attn_weight, c_attn_bias, c_proj_weight, c_proj_bias, out, batch_size, seq_len, n_embd]

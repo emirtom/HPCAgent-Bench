@@ -43,3 +43,5 @@ args:
   mlp_proj_bias: {shape: "(n_embd,)", domain: [-0.1, 0.1]}
   out: {shape: "(batch_size, seq_len, n_embd)", out: true}
   ln_eps: 1.0e-05
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, num_heads, ln1_weight, ln1_bias, c_attn_weight, c_attn_bias, c_proj_weight, c_proj_bias, ln2_weight, ln2_bias, c_fc_weight, c_fc_bias, mlp_proj_weight, mlp_proj_bias, ln_eps, out, batch_size, seq_len, n_embd]

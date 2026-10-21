@@ -24,3 +24,5 @@ args:
   weight: (hidden_size, input_size)
   out: {shape: "(batch_size, 1)", out: true}
   scaling_factor: 1.5
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, scaling_factor, weight, out]

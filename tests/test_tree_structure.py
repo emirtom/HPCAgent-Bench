@@ -132,8 +132,7 @@ def test_a_convolution_kernel_pins_padding_to_one_constant_in_config() -> None:
     ``padding=2`` inside ``__init__`` where no knob can reach it, and
     conv_transpose3d_layer_norm_gelu_scaling's ``nn.LayerNorm(out_channels)`` only matches the
     port's trailing extent at ``padding=1``. Both were rewritten to 0 to satisfy this assertion and
-    both then computed a different function than the model they were ported from
-    (tests/test_kernelbench_torch_agreement.py is what caught it). A ``domain:`` sweep is what
+    both then computed a different function than the model they were ported from. A ``domain:`` sweep is what
     breaks the folding, not a nonzero pin.
     """
     stray, unpinned = [], []

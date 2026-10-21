@@ -30,3 +30,5 @@ args:
 public:
   negative:
     hardtanh_min: "the lower hardtanh bound"
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, scaling_factor, hardtanh_min, hardtanh_max, gemm_weight, gemm_bias, out]

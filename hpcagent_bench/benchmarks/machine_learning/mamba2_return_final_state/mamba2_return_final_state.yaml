@@ -43,3 +43,5 @@ args:
   A: {shape: "(batch_size, seq_length, n_heads)", dist: normal, domain: [-1.0, 0.0]}
   B: {shape: "(batch_size, seq_length, n_heads, d_state)", dist: normal, domain: [-1.0, 1.0]}
   out: {shape: "(batch_size, n_heads, d_head, d_state)", out: true}
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [X, A, B, block_len, out, batch_size, seq_length, n_heads, d_head, d_state]

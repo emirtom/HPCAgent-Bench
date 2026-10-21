@@ -41,3 +41,5 @@ args:
   out: {shape: "(sequence_length, batch_size, 2 * hidden_size)", out: true}
 chain_length:
   out: hidden_size * sequence_length * num_layers
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, h0, w_ih0, w_hh0, b_ih0, b_hh0, w_ih, w_hh, b_ih, b_hh, out, num_layers, sequence_length, hidden_size]

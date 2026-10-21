@@ -40,3 +40,5 @@ args:
   gn_num_groups: 2
   gn_eps: 1.0e-05
   leaky_relu_negative_slope: 0.01
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, fc_weight, fc_bias, gn_weight, gn_bias, gn_num_groups, gn_eps, leaky_relu_negative_slope, out, batch_size, hidden_size]

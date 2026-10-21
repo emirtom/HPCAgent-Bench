@@ -29,3 +29,5 @@ args:
   batch_norm_running_var: {shape: "(out_features,)", dist: lognormal, domain: [0.5, 1.5]}
   out: {shape: "(batch_size, out_features)", out: true}
   batch_norm_eps: 1.0e-05
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, gemm_weight, gemm_bias, batch_norm_weight, batch_norm_bias, batch_norm_running_mean, batch_norm_running_var, batch_norm_eps, out, out_features]

@@ -20,12 +20,12 @@ import pydantic
 from hpcagent_agent.coded import Coded
 
 from hpcagent_bench import config, framework_cache, paths
-from hpcagent_bench.categories import Language, SourceMode
+from hpcagent_bench.categories import Language, SourceMode, Track
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.harness.usage import TokenUsage
 from hpcagent_bench.languages import LANG_TARGET
-from hpcagent_bench.spec import BenchSpec, register_manifest_cache
+from hpcagent_bench.spec import BenchSpec, numpy_reference_path, register_manifest_cache
 
 if TYPE_CHECKING:
     from anthropic.types import MessageParam
@@ -64,6 +64,7 @@ __all__ = [
     "clear_reference_cache",
     "committed_reference_override",
     "emit_reference_source",
+    "task_reference_file",
     "emitted_bench_info",
     "generated_cache_root",
     "http_chat_json",
@@ -215,6 +216,10 @@ def _reference_source(kernel: str, language: Language, prefer_committed: bool) -
     if glob is None or target is None:
         raise NotImplementedError(f"no reference for language {language.text!r}")
     spec = BenchSpec.load(kernel)
+    if spec.track is Track.MACHINE_LEARNING:
+        raise RuntimeError(
+            f"{kernel}: the machine_learning track's reference is PyTorch; nothing emits it to {language.text}"
+        )
     kernel_py = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_numpy.py"
 
     # Read through the on-disk cache before emitting: the lru_cache is per process, and every rank and agent asks.
@@ -241,6 +246,16 @@ def _reference_source(kernel: str, language: Language, prefer_committed: bool) -
         except OSError:
             pass
     return text
+
+
+def task_reference_file(spec: BenchSpec) -> pathlib.Path | None:
+    """The file an agent reads as the kernel's semantics: the NumPy reference, or on the machine_learning track the
+    PyTorch one (its ``<module>_torch.py`` or the upstream KernelBench model)."""
+    if spec.track is Track.MACHINE_LEARNING:
+        from hpcagent_bench.harness import torch_baseline  # noqa: PLC0415 -- torch's machinery, only for this track
+
+        return torch_baseline.reference_file(spec)
+    return numpy_reference_path(spec.relative_path, spec.module_name)
 
 
 def emit_reference_source(kernel: str, language: Language) -> str:

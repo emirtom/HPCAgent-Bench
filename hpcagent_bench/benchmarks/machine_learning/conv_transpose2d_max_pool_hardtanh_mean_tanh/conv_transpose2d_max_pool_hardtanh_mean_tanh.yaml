@@ -75,3 +75,5 @@ public:
   negative:
     hardtanh_min: "the lower hardtanh bound"
     hardtanh_min_val: "the lower hardtanh bound"
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, maxpool_kernel_size, maxpool_stride, conv_transpose_weight, conv_transpose_bias, conv_transpose_stride, conv_transpose_padding, conv_transpose_dilation, conv_transpose_groups, conv_transpose_output_padding, maxpool_padding, hardtanh_min_val, hardtanh_max_val, out, batch_size, in_channels, out_channels, height, width, kernel_size]

@@ -36,3 +36,5 @@ args:
   weights: (K, K, C_in, C_out)
   bias: (C_out,)
   out: {shape: "(N, H - K + 1, W - K + 1, C_out)", out: true}
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [input, weights, bias, out, K, H, W]

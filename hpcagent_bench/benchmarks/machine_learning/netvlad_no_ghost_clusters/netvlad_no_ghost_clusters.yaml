@@ -37,3 +37,5 @@ args:
   clusters2: {shape: "(1, feature_size, cluster_size)", domain: [-1.0, 1.0]}
   out: {shape: "(batch_size, cluster_size * feature_size)", out: true}
   bn_eps: 1.0e-05
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, clusters, bn_weight, bn_bias, bn_running_mean, bn_running_var, bn_eps, clusters2, out, batch_size, num_features, feature_size, cluster_size]

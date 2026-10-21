@@ -33,3 +33,5 @@ args:
   out: {shape: "(batch_size, in_channels, input_length)", out: true}
   avg_pool_kernel_size: 3
   avg_pool_stride: 1
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, avg_pool_kernel_size, avg_pool_stride, avg_pool_padding, out, batch_size, in_channels, input_length]

@@ -57,3 +57,5 @@ mpi:
   # gathers token_ids in rank order and reads the table's GLOBAL row offset from its contiguous block.
   replicatable:
   - token_ids
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [token_ids, embedding_table, out]

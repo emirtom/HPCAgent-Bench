@@ -52,3 +52,5 @@ args:
   conv_transpose_bias: (out_channels,)
   out: {shape: "(batch_size, out_channels, 1, 1, 1)", out: true}
   scale: 2.0
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, stride, padding, conv_transpose_weight, conv_transpose_bias, scale, maxpool_kernel_size, out, batch_size, in_channels, out_channels, D, H, W, kernel_size]

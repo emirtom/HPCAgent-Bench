@@ -36,3 +36,5 @@ args:
   fc_out_weight: {shape: "(output_size, hidden)", domain: [-0.0221, 0.0221]}
   fc_out_bias: {shape: "(output_size,)", domain: [-0.1, 0.1]}
   out: {shape: "(batch_size, output_size)", out: true}
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, fc_in_weight, fc_in_bias, hidden_weight, hidden_bias, fc_out_weight, fc_out_bias, out, num_hidden]

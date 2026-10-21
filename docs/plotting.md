@@ -261,7 +261,7 @@ verdicts are the stars; the figure recomputes only the drawn point through
 | `pending=kimi27sglang,qwen38` | empty column per model with no pair yet; `?` with `--mark-pending` |
 | `difference=HIP:qwen38,...` | grey bar between a named pair's two marks, with its factor |
 | `comparators=<csv>` | compiler/framework marks from a `kernel,comparator,device,numba_ms,ms,speedup` table (one row per tag kernel, `speedup` blank where invalid) |
-| `comparator-set=pluto:C,jax_cpu:C` | which comparators the panel draws and under which delivery; no `:group` = the panel's first delivery. One mark each: geomean of `speedup` over the valid kernels, 95% bootstrap interval from `summary.MIN_PAIRS_FOR_INTERVAL` kernels; solved row = valid / tag; nothing on the cost row. Numbers go to `<table>-comparators.csv` |
+| `comparator-set=pluto:C,polly:C` | which comparators the panel draws and under which delivery; no `:group` = the panel's first delivery. One mark each: geomean of `speedup` over the valid kernels, 95% bootstrap interval from `summary.MIN_PAIRS_FOR_INTERVAL` kernels; solved row = valid / tag; nothing on the cost row. Numbers go to `<table>-comparators.csv` |
 
 A single comparison can also use top-level flags:
 

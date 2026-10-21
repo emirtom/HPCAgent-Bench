@@ -36,3 +36,5 @@ args:
   conv_weight: {shape: "(num_output_features, num_input_features, 1, 1)", domain: [-0.1768, 0.1768]}
   out: {shape: "(batch_size, num_output_features, height // 2, width // 2)", out: true}
   bn_eps: 1.0e-05
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, bn_weight, bn_bias, bn_running_mean, bn_running_var, conv_weight, bn_eps, out, batch_size, num_input_features, num_output_features, height, width]

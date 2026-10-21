@@ -29,3 +29,5 @@ args:
   ln_bias: (features, dim1, dim2)
   out: {shape: "(batch_size, features, dim1, dim2)", out: true}
   ln_eps: 1.0e-05
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, ln_weight, ln_bias, ln_eps, out]

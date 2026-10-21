@@ -37,6 +37,7 @@ from hpcagent_bench.categories import Baseline, Language, Oracle, Residency, Tra
 from hpcagent_bench.config import GridChooser, PromptStrategy, RequestCapability
 from hpcagent_bench.dtypes import c_type
 from hpcagent_bench.harness import mpi_sizing, prompt_sections, torch_reference
+from hpcagent_bench.harness.agent import task_reference_file
 from hpcagent_bench.harness.mpi_descriptor import (
     Descriptor,
     default_requests,
@@ -988,10 +989,11 @@ def build_context(
 
     precision = graded_datatype(spec, task.precision.value)
     disp_rtol, disp_atol = kernel_tolerances(spec, precision)
-    ref_py = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_numpy.py"
+    kernel_dir = paths.BENCHMARKS / spec.relative_path
+    ref_py = task_reference_file(spec) or kernel_dir / f"{spec.module_name}_numpy.py"
     reference = strip_comments(ref_py.read_text(), "python") if ref_py.exists() else ""
     # Original ported sources for this kernel's stem (several kernels can share a directory).
-    original_matches = sorted(ref_py.parent.glob(f"{spec.module_name}_reference.*"))
+    original_matches = sorted(kernel_dir.glob(f"{spec.module_name}_reference.*"))
     has_reference = bool(original_matches)
     original_paths = [f"hpcagent_bench/benchmarks/{spec.relative_path}/{m.name}" for m in original_matches]
     original_path = original_paths[0] if original_paths else ""
@@ -1085,6 +1087,9 @@ def build_context(
         "sparse_formats_requestable": allowances.allows(RequestCapability.SPARSE_FORMAT),
         "symbol": symbol,
         "reference": reference.strip(),
+        # What the reference is written in: PyTorch on the machine_learning track, NumPy everywhere else.
+        "reference_kind": "PyTorch" if spec.track is Track.MACHINE_LEARNING else "NumPy",
+        "reference_file": ref_py.name,
         "kernel_path": kernel_path,
         "func_name": spec.func_name,
         "input_args": list(spec.input_args),

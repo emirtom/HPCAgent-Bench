@@ -41,3 +41,5 @@ args:
   out: {shape: "(batch_size, features, dim1, dim2)", out: true}
   gn_num_groups: 2
   gn_eps: 1.0e-05
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, gn_weight, gn_bias, gn_num_groups, gn_eps, out, batch_size, features, dim1, dim2]

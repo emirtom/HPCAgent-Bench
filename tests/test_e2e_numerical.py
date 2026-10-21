@@ -79,8 +79,8 @@ if E2E_PRECISION == "fp16":
             f"fp16-capable backends are {sorted(FP16_BACKENDS)}"
         )
 
-#: Tracks the sweep gates; `machine_learning` also exercises reduction/keepdims/triangular-mask/promotion paths.
-GATED_TRACKS = (Track.LOOP_LEVEL_REASONING, Track.SCIENTIFIC_COMPUTING, Track.MACHINE_LEARNING)
+#: Tracks the sweep gates; `machine_learning` has a PyTorch reference, which no translator emits.
+GATED_TRACKS = (Track.LOOP_LEVEL_REASONING, Track.SCIENTIFIC_COMPUTING)
 
 #: Sole per-corpus witnesses for 3 precision-lowering bugs; membership asserted so none get silently dropped.
 PINNED_KERNELS = ("vexx_k", "chebyshev_filter_subspace", "raman_fitting")
@@ -103,26 +103,6 @@ FP64_ONLY_KERNELS = (
     "cp2k_density_matrix_trs4",
     "cp2k_grid_integrate",
     "dbcsr",
-    "dist_adamw_zero",
-    "dist_all_to_all_transpose",
-    "dist_causal_attention",
-    "dist_contrastive_loss",
-    "dist_conv2d_halo",
-    "dist_cross_entropy",
-    "dist_gemm_add_relu",
-    "dist_gemm_gn_swish",
-    "dist_layer_norm",
-    "dist_matmul_gelu_softmax",
-    "dist_matmul_large_k",
-    "dist_mlp_tp",
-    "dist_moe_dispatch",
-    "dist_moe_router",
-    "dist_rmsnorm",
-    "dist_sdpa",
-    "dist_softmax",
-    "dist_split_kv_decode",
-    "dist_sync_batchnorm",
-    "dist_vocab_embedding",
     "distribution_search",
     "examinimd",
     "gromacs_nbnxm",
@@ -162,7 +142,7 @@ UNGATED_TAGS = ("kernelbench",)
 #: stays a skip (a host without the toolchain), anything else fails.
 REQUIRE_OK = frozenset(
     {
-        *((stem, "c") for stem in ("lenet", "channel_flow", "cavity_flow", "vadv", "hdiff")),
+        *((stem, "c") for stem in ("channel_flow", "cavity_flow", "vadv", "hdiff")),
         *((stem, backend) for stem in ("fft_1d", "fft_3d") for backend in ("numba",)),
         ("cegterg", "numba"),
         ("smith_waterman", "fortran"),

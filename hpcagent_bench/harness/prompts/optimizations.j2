@@ -14,7 +14,7 @@ Start loop nest by loop nest (step 1 below): make each nest fast and correct bef
 
 1. **Work loop nest by loop nest.** For each nest, first improve locality and vectorization (tiling or
    blocking, unrolling, hoisting loop-invariant work, contiguous access, `restrict` and aliasing hints,
-   alignment), then confirm the result still matches the NumPy reference before you move to the next
+   alignment), then confirm the result still matches the {{ reference_kind }} reference before you move to the next
    nest.
 2. **Fuse adjacent nests.** Once the nests are tuned, fuse adjacent ones that share arrays to cut memory
    traffic and intermediate buffers. Fuse only when it preserves the reference results.

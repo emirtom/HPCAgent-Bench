@@ -48,3 +48,5 @@ mpi:
   # from each earlier rank, never their logits. No layout_flexible: the queue order is the GLOBAL
   # token order, which the reference reads from the contiguous block (earlier ranks = earlier tokens).
   replicatable: []
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [router_logits, out, num_tokens, num_experts, capacity_factor]

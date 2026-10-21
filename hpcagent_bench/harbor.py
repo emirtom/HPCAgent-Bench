@@ -460,7 +460,7 @@ def instruction_md(task_id: str, kts: list[KernelTask], language: Language) -> s
     sections = [
         f"""## `{kt.row.name}` (`{kt.row.id}`)
 
-- Reference semantics (NumPy): `{kt.reference_path()}`
+- Reference semantics ({hf_export.reference_kind(kt.row.track)}): `{kt.reference_path()}`
 - C-ABI to implement (entry symbol `{kt.row.symbol or kt.row.kernel}`): `{kt.signature_path()}`
 - Write your optimized {kt.row.config} implementation to: `{kt.submission_path(language)}`{layout_lines(kt)}"""
         for kt in kts
@@ -602,7 +602,7 @@ def mpi_instruction_md(kt: KernelTask, language: Language, ranks: int, mode: Sca
     )
     body = f"""## `{row.name}` (`{row.id}`)
 
-- Reference semantics (NumPy, whole-domain): `{kt.reference_path()}`
+- Reference semantics ({hf_export.reference_kind(row.track)}, whole-domain): `{kt.reference_path()}`
 - Implement the exported symbol `{sym}`. Its exact Sec. 12 signature is the stub already written to
   your submission file: local pointer tiles (alphabetical), then local size symbols (alphabetical),
   then the Cartesian `comm`, then the reserved `workspace`/`workspace_size` pair -- and NO timer

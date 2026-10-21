@@ -56,3 +56,5 @@ args:
     out: true
   scale1: 2.0
   scale2: 0.5
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, stride, padding, conv_transpose_weight, conv_transpose_bias, scale1, avg_pool_kernel_size, bias, scale2, out, batch_size, in_channels, out_channels, D, H, W, kernel_size]

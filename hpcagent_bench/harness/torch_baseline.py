@@ -74,6 +74,7 @@ __all__ = [
     "pin_child",
     "publish_layer",
     "publish_warm",
+    "reference_file",
     "reference_outputs",
     "reference_source",
     "run_job",
@@ -128,6 +129,14 @@ def reference_source(spec: BenchSpec) -> Source:
     if not row.upstream:
         raise TorchBaselineUnavailable(f"{spec.short_name}: no PyTorch reference ({row.note or 'uncovered'})")
     return Source.KERNELBENCH
+
+
+def reference_file(spec: BenchSpec) -> pathlib.Path:
+    """The file holding the kernel's PyTorch reference: its own ``<module>_torch.py``, else the upstream KernelBench
+    model ``kernelbench_map.yaml`` names. Raises :class:`TorchBaselineUnavailable` when it has neither."""
+    if reference_source(spec) is Source.SHIPPED:
+        return torch_reference.torch_module_path(spec)
+    return kernelbench_adapter.submodule_root() / str(kernelbench_adapter.row_for(spec).upstream)
 
 
 def coverage(specs: Sequence[BenchSpec]) -> tuple[tuple[str, ...], dict[str, str]]:
@@ -630,7 +639,8 @@ def warm(kernels: Sequence[str], kind: Baseline, preset: Preset, datatype: str) 
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """``warm``: compile a setup's ML kernels ahead of its grades; prints the refusals as JSON lines."""
+    """``warm``: compile a setup's ML kernels ahead of its grades, printing the refusals as JSON lines;
+    ``reference-file``: print the file holding a kernel's PyTorch reference (:func:`reference_file`)."""
     from hpcagent_bench.spec import resolve_preset
 
     parser = argparse.ArgumentParser(prog="python -m hpcagent_bench.harness.torch_baseline")
@@ -642,7 +652,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     verb.add_argument("--datatype", default=config.current().service.datatype)
     verb.add_argument("--shard", type=int, default=0, help="this process's share of the kernels (0-based)")
     verb.add_argument("--shards", type=int, default=1, help="how many processes split the kernels")
+    where = sub.add_parser("reference-file", help="print the file holding a kernel's PyTorch reference")
+    where.add_argument("kernel", help="a registry key or manifest stem")
     args = parser.parse_args(argv)
+    if args.verb == "reference-file":
+        print(reference_file(BenchSpec.load(args.kernel)))
+        return 0
     preset = resolve_preset(args.preset)
     tagged = tag_kinds(pathlib.Path(args.problems), args.language)
     for kind, members in sorted(tagged.items(), key=lambda item: item[0].text):

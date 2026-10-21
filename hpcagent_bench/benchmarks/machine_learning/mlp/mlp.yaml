@@ -36,3 +36,5 @@ args:
   w3: (S1, S2)
   b3: (S2,)
   out: {shape: "(N, S2)", out: true}
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [input, w1, b1, w2, b2, w3, b3, out]

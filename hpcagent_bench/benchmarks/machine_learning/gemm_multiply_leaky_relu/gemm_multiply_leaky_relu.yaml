@@ -32,3 +32,5 @@ args:
   gemm_bias: (out_features,)
   out: {shape: "(batch_size, out_features)", out: true}
   leaky_relu_negative_slope: 0.1
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, multiplier, gemm_weight, gemm_bias, leaky_relu_negative_slope, out]

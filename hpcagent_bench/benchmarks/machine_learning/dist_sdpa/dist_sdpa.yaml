@@ -64,3 +64,5 @@ mpi:
   replicatable:
   - K
   - V
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [Q, K, V, out, embedding_dimension]

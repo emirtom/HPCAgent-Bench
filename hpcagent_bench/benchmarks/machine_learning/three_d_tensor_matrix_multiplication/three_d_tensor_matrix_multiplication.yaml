@@ -27,3 +27,5 @@ args:
   A: (N, M, K)
   B: (K, L)
   out: {shape: "(N, M, L)", out: true}
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [A, B, out]

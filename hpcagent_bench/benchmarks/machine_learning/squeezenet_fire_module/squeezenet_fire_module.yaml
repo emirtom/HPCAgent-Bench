@@ -44,3 +44,5 @@ args:
   expand3x3_weight: (expand3x3_channels, squeeze_channels, 3, 3)
   expand3x3_bias: (expand3x3_channels,)
   out: {shape: "(batch_size, expand1x1_channels + expand3x3_channels, height, width)", out: true}
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, squeeze_weight, squeeze_bias, expand1x1_weight, expand1x1_bias, expand3x3_weight, expand3x3_bias, out, batch_size, in_channels, squeeze_channels, expand1x1_channels, expand3x3_channels, height, width]

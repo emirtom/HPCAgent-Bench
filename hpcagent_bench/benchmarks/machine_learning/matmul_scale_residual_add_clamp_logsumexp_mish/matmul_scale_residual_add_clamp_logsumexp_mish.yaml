@@ -38,3 +38,5 @@ args:
 public:
   negative:
     clamp_min: "the lower clamp bound"
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, scale_factor, clamp_min, clamp_max, matmul_weight, matmul_bias, out]

@@ -61,3 +61,5 @@ args:
     out: true
   # Must stay in step with the ' // 2' in the out shape above.
   bn_eps: 1.0e-05
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, expand_conv_weight, expand_bn_weight, expand_bn_bias, expand_bn_running_mean, expand_bn_running_var, depthwise_conv_weight, depthwise_bn_weight, depthwise_bn_bias, depthwise_bn_running_mean, depthwise_bn_running_var, project_conv_weight, project_bn_weight, project_bn_bias, project_bn_running_mean, project_bn_running_var, bn_eps, out, batch_size, in_channels, out_channels, hidden_dim, kernel_size, height, width]

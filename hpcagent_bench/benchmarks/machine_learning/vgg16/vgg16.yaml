@@ -50,3 +50,5 @@ args:
   classifier_6_weight: {shape: "(num_classes, 4096)", domain: [-0.01562, 0.01562]}
   classifier_6_bias: {shape: "(num_classes,)", domain: [-0.1, 0.1]}
   out: {shape: "(batch_size, num_classes)", out: true}
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, features_0_weight, features_0_bias, features_2_weight, features_2_bias, features_5_weight, features_5_bias, features_7_weight, features_7_bias, features_10_weight, features_10_bias, features_12_weight, features_12_bias, features_14_weight, features_14_bias, features_17_weight, features_17_bias, features_19_weight, features_19_bias, features_21_weight, features_21_bias, features_24_weight, features_24_bias, features_26_weight, features_26_bias, features_28_weight, features_28_bias, classifier_0_weight, classifier_0_bias, classifier_3_weight, classifier_3_bias, classifier_6_weight, classifier_6_bias, out, batch_size]

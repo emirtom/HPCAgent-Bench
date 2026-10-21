@@ -32,3 +32,5 @@ args:
   linear_weight: (out_features, in_features)
   linear_bias: (out_features,)
   out: {shape: "(batch_size, out_features)", out: true}
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, subtract_value, multiply_value, linear_weight, linear_bias, out]

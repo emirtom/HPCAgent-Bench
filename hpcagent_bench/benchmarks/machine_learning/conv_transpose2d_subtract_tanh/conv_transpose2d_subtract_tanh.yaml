@@ -50,3 +50,5 @@ args:
       - 1) + output_padding + 1, (width - 1) * stride - 2 * padding + (kernel_size
       - 1) + output_padding + 1)
     out: true
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, conv_transpose_weight, conv_transpose_bias, bias, stride, padding, output_padding, out, batch_size, in_channels, height, width, out_channels, kernel_size]

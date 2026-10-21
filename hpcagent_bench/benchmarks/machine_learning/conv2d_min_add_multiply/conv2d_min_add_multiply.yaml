@@ -45,3 +45,5 @@ args:
   conv_groups: 1
   constant_value: 0.5
   scaling_factor: 2.0
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, conv_weight, conv_bias, conv_stride, conv_padding, conv_dilation, conv_groups, constant_value, bias, scaling_factor, out, batch_size, in_channels, out_channels, height, width, kernel_size]

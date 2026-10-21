@@ -44,3 +44,5 @@ args:
   conv_groups: 1
   instance_norm_eps: 1.0e-05
   divide_by: 2.0
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, conv_weight, conv_bias, conv_stride, conv_padding, conv_dilation, conv_groups, instance_norm_eps, divide_by, out, batch_size, in_channels, out_channels, height, width, kernel_size]

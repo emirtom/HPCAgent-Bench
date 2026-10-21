@@ -74,3 +74,5 @@ mpi:
   - x
   - linear2_bias
   - out
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, linear1_weight, linear1_bias, linear2_weight, linear2_bias, out]

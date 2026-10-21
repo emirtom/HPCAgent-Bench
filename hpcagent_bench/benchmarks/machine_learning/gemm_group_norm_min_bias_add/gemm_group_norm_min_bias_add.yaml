@@ -58,3 +58,5 @@ args:
   out: {shape: "(1, 8192, batch_size, 1)", out: true}
   group_norm_num_groups: 2
   group_norm_eps: 1.0e-05
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, gemm_weight, gemm_bias, group_norm_weight, group_norm_bias, bias, group_norm_num_groups, group_norm_eps, out, batch_size, out_features]

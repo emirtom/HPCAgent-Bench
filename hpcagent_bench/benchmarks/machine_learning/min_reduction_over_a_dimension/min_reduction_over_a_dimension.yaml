@@ -22,3 +22,5 @@ parameters:
 args:
   x: (batch_size, dim1, dim2)
   out: {shape: "(batch_size, dim2)", out: true}
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, out]

@@ -29,3 +29,5 @@ args:
   gemm_bias: (out_features,)
   subtract: (out_features,)
   out: {shape: "(batch_size, in_features)", out: true}
+# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
+input_args: [x, gemm_weight, gemm_bias, subtract, out]

@@ -239,12 +239,15 @@ if [[ "${CHECK_ONLY:-0}" != 1 ]]; then
     container_step env HPCAGENT_BENCH_REFERENCES_GENERATED_CACHE_DIR="${GEN_CACHE}" \
         bash -c 'exec "${HPCAGENT_BENCH_IMAGE_PYTHON}" - "$@"' _ "${PROBLEMS}" "${LANG_}" <<'PY'
 import pathlib, sys
-from hpcagent_bench.categories import Language
+from hpcagent_bench.categories import Language, Track
 from hpcagent_bench.harness import agent
+from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.problem_file import read_lines
 
 problems, spelled = sys.argv[1], sys.argv[2]
 kernels = sorted({problem.kernel for problem in read_lines(pathlib.Path(problems))})
+# The machine_learning reference is PyTorch, staged as is by materialize_shared: nothing to emit.
+kernels = [k for k in kernels if BenchSpec.load(k).track is not Track.MACHINE_LEARNING]
 hit = miss = fail = 0
 for k in kernels:
     try:
@@ -257,7 +260,6 @@ for k in kernels:
         key = None
         root = agent.generated_cache_root()
         if root is not None:
-            from hpcagent_bench.spec import BenchSpec
             from hpcagent_bench import paths
             spec = BenchSpec.load(k)
             kp = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_numpy.py"
