@@ -297,20 +297,30 @@ def test_pluto_emits_multidim_for_rank2_arrays() -> None:
         assert names.index("NI") < names.index("A"), "pluto binding: size symbols must precede array params"
 
 
-def test_pluto_input_inlines_the_helpers_the_c_source_keeps() -> None:
-    """A call is opaque to pet, and ppcg's host code hands a kept helper device pointers (bout_arakawa,
-    channel_flow, dwt2d validated wrong on ppcg), so the Pluto input inlines what the C source keeps."""
+def test_ppcg_reads_a_twin_with_the_array_helpers_inlined() -> None:
+    """ppcg moves every array to the device, so a kept helper taking one would run on the host over device
+    pointers (bout_arakawa, channel_flow, dwt2d validated wrong). The Pluto input keeps the helper; ppcg reads a
+    ``_ppcg_input.c`` twin with it inlined, written only when such a helper exists."""
     if not _emitter_present():
         pytest.skip("translators absent")
     from hpcagent_bench.emit_bridge import emit_kernel
+    from hpcagent_bench.polyhedral.ppcg import entry_symbol, ppcg_input
 
-    spec = BenchSpec.load("dwt2d")
-    numpy_py = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_numpy.py"
-    with tempfile.TemporaryDirectory() as d:
-        out = pathlib.Path(d)
-        assert emit_kernel(spec, numpy_py, out, target="c") == 0
-        assert "dwt2d_levels(" in (out / "dwt2d_fp64.c").read_text(), "premise: the C source keeps the helper"
-        assert "dwt2d_levels" not in (out / "dwt2d_fp64_pluto_input.c").read_text()
+    for kernel, twin in (("dwt2d", True), ("gemm", False)):
+        spec = BenchSpec.load(kernel)
+        numpy_py = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_numpy.py"
+        with tempfile.TemporaryDirectory() as d:
+            out = pathlib.Path(d)
+            assert emit_kernel(spec, numpy_py, out, target="c") == 0
+            pluto = out / f"{kernel}_fp64_pluto_input.c"
+            chosen = ppcg_input(pluto)
+            assert entry_symbol(chosen) == f"{kernel}_fp64"
+            if not twin:
+                assert chosen == pluto, f"{kernel} has no array helper, so ppcg reads the Pluto input"
+                continue
+            assert chosen == out / f"{kernel}_fp64_ppcg_input.c"
+            assert "dwt2d_levels(" in pluto.read_text(), "premise: the Pluto input keeps the helper"
+            assert "dwt2d_levels" not in chosen.read_text()
 
 
 def test_pluto_call_order_is_polyccs_not_the_canonical_abi(

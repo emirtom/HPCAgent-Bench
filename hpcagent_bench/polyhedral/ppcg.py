@@ -43,6 +43,7 @@ __all__ = [
     "missing_tool",
     "offloaded",
     "ppcg_exe",
+    "ppcg_input",
     "ppcg_lookup",
     "ppcg_problem",
     "resolve_backend",
@@ -299,8 +300,16 @@ def with_device_helpers(prelude: str, kernel_src: str) -> str:
 
 
 def entry_symbol(scop: pathlib.Path) -> str:
-    """The exported kernel symbol in ``scop``: its stem without the ``_pluto_input`` (or override) tag."""
-    return scop.stem.removesuffix(pathlib.Path(OVERRIDE_INPUT_SUFFIX).stem).removesuffix("_pluto_input")
+    """The exported kernel symbol in ``scop``: its stem without the ``_pluto_input``/``_ppcg_input`` (or override)
+    tag."""
+    stem = scop.stem.removesuffix(pathlib.Path(OVERRIDE_INPUT_SUFFIX).stem)
+    return stem.removesuffix("_pluto_input").removesuffix("_ppcg_input")
+
+
+def ppcg_input(scop: pathlib.Path) -> pathlib.Path:
+    """``scop``'s helper-inlined twin ``<base>_fpNN_ppcg_input.c`` when the translator wrote one, else ``scop``."""
+    twin = scop.with_name(scop.name.replace("_pluto_input.c", "_ppcg_input.c"))
+    return twin if twin != scop and twin.is_file() else scop
 
 
 def drop_const_params(scop_src: str, entry: str) -> str:
@@ -375,7 +384,7 @@ def transformed_sources(cpp_backend: pathlib.Path, base: str, backend: Language 
     problem = missing_tool(vendor)
     if problem:
         raise ToolMissing(FRAMEWORK, base, problem)
-    scops = scop_inputs(cpp_backend, base)
+    scops = [ppcg_input(scop) for scop in scop_inputs(cpp_backend, base)]
     if not scops:
         raise NotSupportedByFramework(FRAMEWORK, base, "the translator emitted no #pragma scop for this kernel")
     out: list[pathlib.Path] = []
