@@ -214,7 +214,7 @@ def read_env(*names: str) -> tuple[str | None, ...]:
 
 
 def test_an_isolated_call_runs_in_the_submissions_context(root: pathlib.Path, tmp_path: pathlib.Path) -> None:
-    """``_call_isolated`` starts an llvm-context child with that context's environment, and a default one
+    """``call_isolated`` starts an llvm-context child with that context's environment, and a default one
     without: the kernel reports what its own process saw."""
     config.set_override("grading.seal", False)
     seen = tmp_path / "seen.txt"
@@ -227,7 +227,7 @@ def test_an_isolated_call_runs_in_the_submissions_context(root: pathlib.Path, tm
     )
     binding = binding_from_spec(spec.BenchSpec.load("gemm"))
     for context, layer in (("llvm", "omp"), ("nvhpc", "workqueue")):
-        native_call._call_isolated(
+        native_call.call_isolated(
             kernel,
             binding,
             {"x": np.zeros(1)},
@@ -241,7 +241,7 @@ def test_an_isolated_call_runs_in_the_submissions_context(root: pathlib.Path, tm
         assert name == context
         assert path.startswith(str(root / context / "lib"))
         assert seen_layer == layer
-    native_call._call_isolated(
+    native_call.call_isolated(
         kernel,
         binding,
         {"x": np.zeros(1)},

@@ -67,10 +67,10 @@ class Submission(pydantic.BaseModel):
             )
         if self.language is Language.PYTHON and self.library:
             raise ValueError("python delivery is a source module, not a compiled 'library'")
-        self._validate_gpu_sources()
+        self.validate_gpu_sources()
         return self
 
-    def _validate_gpu_sources(self) -> None:
+    def validate_gpu_sources(self) -> None:
         """A GPU source delivery is the host TU plus the device TU, both or neither (refused, never defaulted)."""
         gpu = self.language in languages.GPU_HOST_LANG
         if self.device_source is not None and not gpu:

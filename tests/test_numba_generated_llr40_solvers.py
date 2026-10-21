@@ -71,11 +71,11 @@ def test_a_formerly_serial_generated_kernel_matches_the_c_reference(kernel: str,
     found.loader.exec_module(module)
     spec = BenchSpec.load(kernel)
     func = modules.function(module, spec.func_name)
-    data = grading._data_seeded(kernel, Preset.S, "float64", 1)
+    data = grading.data_seeded(kernel, Preset.S, "float64", 1)
     order = grading.numba_call_order(spec, func, data)
     args = [np.copy(data[n]) if isinstance(data[n], np.ndarray) else data[n] for n in order]
     got = grading.bind_kernel_outputs(func(*args), args, order, spec.output_args)
     _kind, want = compiled_outputs(kernel, data, (Oracle.C,))
-    rtol, atol = scoring._resolve_tolerances(None, None, "float64", kernel)
+    rtol, atol = scoring.resolve_tolerances(None, None, "float64", kernel)
     ok, err, detail = grading._grade(spec, want, got, rtol, atol)
     assert ok, f"{kernel}: max_rel_err={err} {detail}"

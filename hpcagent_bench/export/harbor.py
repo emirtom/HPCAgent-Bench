@@ -276,7 +276,7 @@ def verifier_compose(hardware: Hardware) -> str:
     return compose_text(header, {MAIN_SERVICE: service})
 
 
-def _ext(language: Language) -> str:
+def ext(language: Language) -> str:
     return LANG_EXT.get(language, language.text)
 
 
@@ -320,10 +320,10 @@ class KernelTask:
         return f"{WORKDIR}/{self.subdir}/{name}"
 
     def submission_rel(self, language: Language) -> str:
-        return f"{self.subdir}/submission.{_ext(language)}"
+        return f"{self.subdir}/submission.{ext(language)}"
 
     def submission_path(self, language: Language) -> str:
-        return self._path(f"submission.{_ext(language)}")
+        return self._path(f"submission.{ext(language)}")
 
     def reference_path(self) -> str:
         return self._path("reference.py")
@@ -346,11 +346,11 @@ class KernelTask:
         return self._path("repo")
 
     def repo_source_path(self, language: Language) -> str:
-        return self._path(f"repo/src/{self.subdir}.{_ext(language)}")
+        return self._path(f"repo/src/{self.subdir}.{ext(language)}")
 
     def repo_source_rel(self, language: Language) -> str:
         """The seed relative to the repo root: true both in Harbor (/app/<k>/repo) and in an experiment clone."""
-        return f"src/{self.subdir}.{_ext(language)}"
+        return f"src/{self.subdir}.{ext(language)}"
 
 
 def kernel_rows(selector: str, commit: str) -> list[KernelRow]:
@@ -390,7 +390,7 @@ def plan_tasks(rows: list[KernelRow], group: Group, max_bundle: int) -> list[tup
     return tasks
 
 
-def _assert_unique_layout(tasks: list[tuple[str, list[KernelTask]]]) -> None:
+def assert_unique_layout(tasks: list[tuple[str, list[KernelTask]]]) -> None:
     """Refuse two tasks with the same dir name, or two kernels sharing a subdir in one bundle."""
     seen_dirs: dict[str, str] = {}
     for task_id, kts in tasks:
@@ -474,7 +474,7 @@ def instruction_md(task_id: str, kts: list[KernelTask], language: Language) -> s
     return head + "\n" + intro + "\n\n" + "\n\n".join(sections) + "\n" + grading
 
 
-def _translation_source(kt: KernelTask, language: Language) -> str | None:
+def translation_source(kt: KernelTask, language: Language) -> str | None:
     """The NumpyToX translation (correct, unoptimized) that seeds a repo task, or None if there is none."""
     if language not in (Language.C, Language.CPP, Language.FORTRAN):
         return None
@@ -519,7 +519,7 @@ the in-repo source, checks correctness, and times it. Maximize speedup while sta
 
 def repo_makefile(kt: KernelTask, language: Language) -> str:
     """A Makefile building the seed with the grader's baseline compiler and flags."""
-    src = f"src/{kt.subdir}.{_ext(language)}"
+    src = f"src/{kt.subdir}.{ext(language)}"
     lib = f"lib{kt.subdir}.so"
     try:
         cc = languages.compile_variant(BenchSpec.load(kt.key), language, src=pathlib.Path(src))[0]
@@ -856,7 +856,7 @@ def write_task(
             (repo_dir / "src").mkdir(parents=True, exist_ok=True)
             (repo_dir / "reference.py").write_text(ref_text)
             (repo_dir / "signature.json").write_text(sig_text)
-            (repo_dir / "src" / f"{kt.subdir}.{_ext(language)}").write_text(seed_source or "")
+            (repo_dir / "src" / f"{kt.subdir}.{ext(language)}").write_text(seed_source or "")
             (repo_dir / "ISSUE.md").write_text(issue_md(kt, language, speedup_min))
             (repo_dir / "Makefile").write_text(repo_makefile(kt, language))
             (repo_dir / ".gitignore").write_text("\n".join(BUILD_ARTIFACT_GLOBS) + "\n")
@@ -867,10 +867,10 @@ def write_task(
         if distributed:
             # The same builders the no-op MPI optimizer submits, so the starter is always gradeable.
             spec, binding = mpi_binding(kt)
-            (env_kdir / f"submission.{_ext(language)}").write_text(gen_kernel_mpi_stub(binding, language))
+            (env_kdir / f"submission.{ext(language)}").write_text(gen_kernel_mpi_stub(binding, language))
             starter = requests_starter(spec, binding, ranks)
         else:
-            (env_kdir / f"submission.{_ext(language)}").write_text(_stub(kt.row, language))
+            (env_kdir / f"submission.{ext(language)}").write_text(_stub(kt.row, language))
             starter = requests_starter(BenchSpec.load(kt.key), None, 0)
         (env_kdir / REQUESTS_FILE).write_text(json.dumps(starter, indent=2))
 
@@ -901,7 +901,7 @@ def write_solution(task_dir: pathlib.Path, kts: list[KernelTask], language: Lang
     sol = task_dir / "solution"
     lines = ["#!/bin/bash", "set -euo pipefail", 'here="$(cd "$(dirname "$0")" && pwd)"']
     for kt in kts:
-        name = f"{kt.subdir}/submission.{_ext(language)}"
+        name = f"{kt.subdir}/submission.{ext(language)}"
         (sol / kt.subdir).mkdir(parents=True, exist_ok=True)
         (sol / name).write_text(sources[kt.key])
         lines.append(f'cp "$here/{name}" {shlex.quote(kt.submission_path(language))}')
@@ -941,14 +941,14 @@ def _translations(
     """``(repo seed, oracle sources)`` a task needs, or None (logged) when a translation is missing."""
     solutions: dict[str, str] | None = None
     if oracle:
-        found = {kt.key: _translation_source(kt, language) for kt in kts}
+        found = {kt.key: translation_source(kt, language) for kt in kts}
         solutions = {k: v for k, v in found.items() if v}
         if len(solutions) != len(kts):
             print(f"hpcagent_bench: no oracle for {task_id!r} -- no {language.text} translation", file=sys.stderr)
             return None
     seed = None
     if layout is Layout.REPO:
-        seed = _translation_source(kts[0], language)
+        seed = translation_source(kts[0], language)
         if seed is None:
             print(
                 f"hpcagent_bench: skipping repo layout for {kts[0].row.id!r} -- no {language.text} "
@@ -991,7 +991,7 @@ def generate(
     if distributed:
         rows = mpi_kernel_rows(rows)
     tasks = plan_tasks(rows, group, max_bundle)
-    _assert_unique_layout(tasks)
+    assert_unique_layout(tasks)
     dirs: list[pathlib.Path] = []
     skipped = 0
     for task_id, kts in tasks:
@@ -1239,7 +1239,7 @@ def grade(
     task = Task(kernel, mode, language, residency=residency)
     if residency is not Residency.DISTRIBUTED:
         reward = final_reward(submission, task, baseline=baseline, datatype=datatype)
-        return reward if repo_dir is None else _gate_repo_pr(reward, repo_dir, speedup_min, seed_sha)
+        return reward if repo_dir is None else gate_repo_pr(reward, repo_dir, speedup_min, seed_sha)
     ts = score_task_fuzzed(
         submission,
         task,
@@ -1279,7 +1279,7 @@ def grade(
         scaling=curve,
         scaling_notes=ts.scaling_notes,
     )
-    return swept if repo_dir is None else _gate_repo_pr(swept, repo_dir, speedup_min, seed_sha)
+    return swept if repo_dir is None else gate_repo_pr(swept, repo_dir, speedup_min, seed_sha)
 
 
 def final_reward(submission: Submission, task: Task, *, baseline: str, datatype: str) -> HostGrade:
@@ -1326,7 +1326,7 @@ def final_reward(submission: Submission, task: Task, *, baseline: str, datatype:
     )
 
 
-def _gate_repo_pr(
+def gate_repo_pr(
     reward: HostGrade | DistributedGrade, repo_dir: str, speedup_min: float | None, seed_sha: str | None = None
 ) -> HostGrade | DistributedGrade:
     """``reward`` gated by the repo-task PR acceptance rule (a rejected PR is a non-win), with the verdict."""
@@ -1370,7 +1370,7 @@ def harbor_reward(reward: Grade) -> dict[str, float | int]:
     return flat
 
 
-def _anchor_submission(source_path: str | None, library: str | None, language: Language) -> Submission | None:
+def anchor_submission(source_path: str | None, library: str | None, language: Language) -> Submission | None:
     """The single-node T_i(1) anchor for a distributed scaling sweep, or None."""
     if source_path and library:
         raise ValueError("anchor takes source OR library, not both")
@@ -1381,7 +1381,7 @@ def _anchor_submission(source_path: str | None, library: str | None, language: L
     return None
 
 
-def _grade_one(
+def grade_one(
     kernel: str,
     source_path: str | None,
     library: str | None,
@@ -1404,7 +1404,7 @@ def _grade_one(
         source = pathlib.Path(source_path).read_text() if source_path else None
         requests = json.loads(pathlib.Path(requests_path).read_text()) if requests_path else None
         anchor = (
-            _anchor_submission(anchor_source_path, anchor_library, anchor_language or language)
+            anchor_submission(anchor_source_path, anchor_library, anchor_language or language)
             if residency is Residency.DISTRIBUTED
             else None
         )
@@ -1451,7 +1451,7 @@ def grade_items(
         return list(seq) if seq is not None else [None] * len(kernels)
 
     rewards = [
-        _grade_one(
+        grade_one(
             kern,
             src,
             lib,
@@ -1495,7 +1495,7 @@ NOT_HARBOR_HINT = (
 )
 
 
-def _first(*names: str) -> str:
+def first(*names: str) -> str:
     return next((v for n in names if (v := os.environ.get(n, "").strip())), "")
 
 
@@ -1507,16 +1507,16 @@ def agent_args(agent: str) -> list[str]:
     model = base = ""
     match agent:
         case "openai" | "vllm":
-            model = _first("HPCAGENT_BENCH_OPENAI_MODEL", "OPENAI_MODEL")
+            model = first("HPCAGENT_BENCH_OPENAI_MODEL", "OPENAI_MODEL")
             model = f"openai/{model}" if model else ""
-            vllm_urls = _first("HPCAGENT_BENCH_VLLM_URLS").split(",")[0]
-            base = _first("OPENAI_BASE_URL", "VLLM_BASE_URL", "OPENAI_API_BASE") or vllm_urls
+            vllm_urls = first("HPCAGENT_BENCH_VLLM_URLS").split(",")[0]
+            base = first("OPENAI_BASE_URL", "VLLM_BASE_URL", "OPENAI_API_BASE") or vllm_urls
             if base:
                 args += ["--ae", f"OPENAI_BASE_URL={base}"]
         case "claude":
-            model = _first("ANTHROPIC_MODEL")
+            model = first("ANTHROPIC_MODEL")
             model = f"anthropic/{model}" if model else ""
-            if base := _first("ANTHROPIC_BASE_URL"):
+            if base := first("ANTHROPIC_BASE_URL"):
                 args += ["--ae", f"ANTHROPIC_BASE_URL={base}"]
     if model:
         args += ["--model", model]

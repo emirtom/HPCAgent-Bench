@@ -689,13 +689,13 @@ class DaceFramework(Framework):
         """The generated kernel module; repeat calls are a ``sys.modules`` hit, not a re-import."""
         return importlib.import_module(bench.impl_module(self.column.postfix))
 
-    def _import_kernel(self, bench: Benchmark) -> DaceProgram:
+    def import_kernel(self, bench: Benchmark) -> DaceProgram:
         """Import the kernel module and return the ``@dace.program``."""
         self.ensure_impls(bench)
         program: DaceProgram = modules.member(self.kernel_module(bench), bench.spec.func_name, DaceProgram)
         return program
 
-    def _build_context(
+    def build_context(
         self, small: frozenset[str] = frozenset(), nonnegative: frozenset[str] = frozenset()
     ) -> PipelineContext:
         """Bundle the module-level DaCe handles the pipelines refer to, and the kernel's ``small`` and
@@ -703,11 +703,11 @@ class DaceFramework(Framework):
         device = dace_dtypes.DeviceType.GPU if self.column.arch is Arch.GPU else dace_dtypes.DeviceType.CPU
         return PipelineContext(device=device, small=small, nonnegative=nonnegative)
 
-    def _device_tag(self) -> str:
+    def device_tag(self) -> str:
         """The cache filename discriminator for the target device (``cpu`` / ``gpu``)."""
         return self.column.arch.text
 
-    def _sdfg_fingerprint(self, bench: Benchmark) -> str:
+    def sdfg_fingerprint(self, bench: Benchmark) -> str:
         """Freshness key for a kernel's cached base SDFG: the numpy reference, the generated
         ``<module>_dace.py``, the precision and the DaCe tree (:func:`framework_cache.dace_tree_fingerprint`)."""
         from hpcagent_bench import cache_files, framework_cache, paths
@@ -732,7 +732,7 @@ class DaceFramework(Framework):
 
         kdir = paths.BENCHMARKS / bench.spec.relative_path
         module = bench.spec.module_name
-        fingerprint = self._sdfg_fingerprint(bench)
+        fingerprint = self.sdfg_fingerprint(bench)
         cache_dir = framework_cache.kernel_cache_dir(kdir)
         cached = framework_cache.load_sdfg(cache_dir, module, tag, fingerprint)
         if cached is not None:
@@ -767,11 +767,11 @@ class DaceFramework(Framework):
         print(f"DaCe optimize: canonical SDFG {'loaded from' if cached else 'published to'} the CPF cache ({key})")
         return sdfg
 
-    def _build_sdfgs(self, ct_impl: DaceProgram, ctx: PipelineContext, bench: Benchmark) -> dict[str, dace.SDFG]:
+    def build_sdfgs(self, ct_impl: DaceProgram, ctx: PipelineContext, bench: Benchmark) -> dict[str, dace.SDFG]:
         """Run the pipeline this flavor scores on a copy of the base SDFG (:meth:`build_with_cache`); a
         failing pipeline is logged and skipped. A canon pipeline reads the canonical SDFG the CPF prerender
         cached (:meth:`cached_canonical`) when ``$HPCAGENT_BENCH_CPF_CACHE`` names a cache root."""
-        base_sdfg = self.build_with_cache(bench, self._device_tag(), lambda: ct_impl.to_sdfg(simplify=False))
+        base_sdfg = self.build_with_cache(bench, self.device_tag(), lambda: ct_impl.to_sdfg(simplify=False))
         canonical_root = os.environ.get(CPF_CACHE_ENV, "")
         produced: dict[str, dace.SDFG] = {}
         for name in self.scored_pipelines():
@@ -797,14 +797,14 @@ class DaceFramework(Framework):
 
     def implementations(self, bench: Benchmark) -> Sequence[tuple[KernelImpl, str]]:
         """Yield the PRE-optimize handle (the parsed @dace.program); optimize() does the pipelines + compile."""
-        ct_impl = self._import_kernel(bench)
+        ct_impl = self.import_kernel(bench)
         return [(ct_impl, "dace")]
 
     def prepare(self, bench: Benchmark) -> None:
         """Emit and import the kernel's ``@dace.program`` and cache its parsed base SDFG for this device
         (:meth:`build_with_cache`), the parse every optimize of it starts from."""
-        program = self._import_kernel(bench)
-        self.build_with_cache(bench, self._device_tag(), lambda: program.to_sdfg(simplify=False))
+        program = self.import_kernel(bench)
+        self.build_with_cache(bench, self.device_tag(), lambda: program.to_sdfg(simplify=False))
 
     # Optimize phase: build the flavor's pipeline, compile it, verify it
 
@@ -814,9 +814,7 @@ class DaceFramework(Framework):
         # The parsed ``@dace.program`` from :meth:`implementations`, whose SDFG the pipelines deepcopy.
         if not isinstance(program, DaceProgram):
             raise TypeError(f"{self.fname}: optimize needs a parsed @dace.program, got {type(program).__name__}")
-        ctx = self._build_context(
-            cpf_canonical.small_symbols(bench.spec), cpf_canonical.nonnegative_symbols(bench.spec)
-        )
+        ctx = self.build_context(cpf_canonical.small_symbols(bench.spec), cpf_canonical.nonnegative_symbols(bench.spec))
         pin_cpp_standard(self.column.arch.text)
         pin_host_compiler()
         pin_per_rank_build_dirs()
@@ -832,7 +830,7 @@ class DaceFramework(Framework):
             pin_single_stream()
 
         self._pipeline_errors = []
-        sdfgs = self._build_sdfgs(program, ctx, bench)
+        sdfgs = self.build_sdfgs(program, ctx, bench)
         compiled = self.compile_variants(sdfgs)
         if not compiled:
             # Decline rather than time the unoptimized SDFG under this column's name.
@@ -1011,7 +1009,7 @@ class DaceFramework(Framework):
             kwargs[renames.get(p, p)] = bdata[p]
         kwargs.update(self.shape_symbols(impl, bench, resolved, kwargs))
         if declared is not None:
-            kwargs.update(bind_closure_arrays(self._import_kernel(bench), declared))
+            kwargs.update(bind_closure_arrays(self.import_kernel(bench), declared))
         if isinstance(impl, TimedCompiledSDFG) and self.column.arch is Arch.GPU:
             stage_device_arguments(impl.sdfg, kwargs, device_staging_module())
         return [], kwargs

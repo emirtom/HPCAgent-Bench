@@ -558,7 +558,7 @@ def init_arrays_raw(init: "InitSpec") -> dict[str, ArrayEntry]:
 #: What kind of execution-path decision a ``config:`` knob makes (descriptive; a closed set catches typos).
 CONFIG_SELECTS = frozenset({"branch", "tile", "iteration", "tolerance", "seed", "physical"})
 
-#: Keys a single ``config:`` entry may declare (see :func:`_parse_config_knob`).
+#: Keys a single ``config:`` entry may declare (see :func:`parse_config_knob`).
 CONFIG_KNOB_KEYS = manifest_schema.field_keys(manifest_schema.ConfigKnobEntry)
 
 
@@ -582,7 +582,7 @@ class ConfigKnob(BaseModel):
         return self.value
 
 
-def _parse_config_knob(raw: object, kernel: str, sym: str, source: str) -> ConfigKnob:
+def parse_config_knob(raw: object, kernel: str, sym: str, source: str) -> ConfigKnob:
     """Parse + validate one ``config:`` entry: exactly one of ``domain:`` and ``value:``, known keys, a known
     ``selects:``."""
     blk = as_block(raw)
@@ -653,7 +653,7 @@ def parse_config_list(raw: list[object], kernel: str, source: str) -> tuple[Conf
     return tuple(rows)
 
 
-def _config_product(knobs: dict[str, ConfigKnob], constraints: tuple[str, ...]) -> tuple[ConfigRow, ...]:
+def config_product(knobs: dict[str, ConfigKnob], constraints: tuple[str, ...]) -> tuple[ConfigRow, ...]:
     """Enumerate the mapping composition: ``domain:`` axes crossed, ``value:`` knobs pinned, ``constraints:``
     filtering rows."""
     axes = [(sym, knob.domain) for sym, knob in knobs.items() if knob.domain is not None]
@@ -664,7 +664,7 @@ def _config_product(knobs: dict[str, ConfigKnob], constraints: tuple[str, ...]) 
     rows: list[ConfigRow] = [
         {**pinned, **dict(zip(names, combo, strict=False))} for combo in itertools.product(*(dom for _, dom in axes))
     ]
-    # A constraint naming an unbound symbol (a size) is a cross-preset invariant, checked by _validate_constraints.
+    # A constraint naming an unbound symbol (a size) is a cross-preset invariant, checked by validate_constraints.
     return tuple(row for row in rows if all(constraint_holds(expr, row) for expr in constraints))
 
 
@@ -686,7 +686,7 @@ def scale_axes_of(raw: object, parameters: PresetTable, config_syms: set[str], s
     return axes
 
 
-def _validate_constraints(constraints: tuple[str, ...], parameters_view: PresetTable, kernel: str, source: str) -> None:
+def validate_constraints(constraints: tuple[str, ...], parameters_view: PresetTable, kernel: str, source: str) -> None:
     """Reject at LOAD any ``constraints:`` expression false at, or naming a symbol undeclared in, a CONCRETE preset
     (``fuzz.safe_eval``); ``fuzzed`` is checked per draw by the fuzzer instead."""
     for preset, names in parameters_view.items():
@@ -740,7 +740,7 @@ def module_level_constants(relative_path: str, module_name: str) -> "dict[str, F
     return out
 
 
-def _validate_shape_identifiers(
+def validate_shape_identifiers(
     init_spec: InitSpec | None,
     param_syms: set[str],
     input_args: tuple[str, ...],
@@ -795,13 +795,13 @@ def shape_identifiers(shape_expr: str) -> frozenset[str]:
     return frozenset(_SHAPE_IDENT_RE.findall(str(shape_expr)))
 
 
-def _innermost_dim_expr(shape_expr: str) -> str | None:
+def innermost_dim_expr(shape_expr: str) -> str | None:
     """The source of ``shape_expr``'s LAST (row-major contiguous) dimension; ``None`` when it does not parse."""
     dims = shape_dims(shape_expr)
     return dims[-1] if dims else None
 
 
-def _validate_packed_shapes(
+def validate_packed_shapes(
     init_spec: InitSpec | None,
     parameters_view: PresetTable,
     relative_path: str,
@@ -825,7 +825,7 @@ def _validate_packed_shapes(
     for name, dtype in sorted(packed.items()):
         mult = dtype_registry.size_multiple(dtype)
         shape_expr = str(init_spec.shapes[name])
-        inner_expr = _innermost_dim_expr(shape_expr)
+        inner_expr = innermost_dim_expr(shape_expr)
         if inner_expr is None:
             continue
         idents = _SHAPE_IDENT_RE.findall(inner_expr)
@@ -865,7 +865,7 @@ def _validate_packed_shapes(
                     )
 
 
-def _validate_chain_length(
+def validate_chain_length(
     chain_length: dict[str, str],
     output_args: tuple[str, ...],
     init_spec: InitSpec | None,
@@ -1535,7 +1535,7 @@ def parse_config_space(
     if is_list(config_raw):
         return {}, parse_config_list(as_list(config_raw), short_name, source)
     if is_mapping(config_raw):
-        knobs = {sym: _parse_config_knob(entry, short_name, sym, source) for sym, entry in as_block(config_raw).items()}
+        knobs = {sym: parse_config_knob(entry, short_name, sym, source) for sym, entry in as_block(config_raw).items()}
         return knobs, ()
     raise ValueError(
         f"{source}: 'config' must be a mapping of symbol -> {{domain|value, selects?}} "
@@ -1739,7 +1739,7 @@ class BenchSpec(BaseModel):
         Preset-independent."""
         if self.config_valid:
             return self.config_valid
-        return _config_product(self.config, self.constraints)
+        return config_product(self.config, self.constraints)
 
     @classmethod
     def from_dict(cls, raw: dict[str, object], source: str = "<dict>") -> "BenchSpec":
@@ -1803,7 +1803,7 @@ class BenchSpec(BaseModel):
         constraints += tuple(c for c in sparse_alignment_constraints(sparse_layouts) if c not in constraints)
         parameters_view: PresetTable = {preset: {**values, **config_reps} for preset, values in dimensions_map.items()}
         if constraints:
-            _validate_constraints(constraints, parameters_view, short_name, source)
+            validate_constraints(constraints, parameters_view, short_name, source)
             # A curated row violating a constraint is an authoring bug, not a row to drop.
             for i, row in enumerate(config_valid):
                 bad = [e for e in constraints if not constraint_holds(e, row)]
@@ -1832,7 +1832,7 @@ class BenchSpec(BaseModel):
             out: str(expr) for out, expr in block_of(bench.get("chain_length"), "chain_length", source).items()
         }
 
-        _validate_shape_identifiers(
+        validate_shape_identifiers(
             init_spec,
             param_syms,
             input_args,
@@ -1842,10 +1842,8 @@ class BenchSpec(BaseModel):
             short_name,
             source,
         )
-        _validate_packed_shapes(init_spec, parameters_view, relative_path, module_name, short_name, source)
-        _validate_chain_length(
-            chain_length, output_args, init_spec, parameters_view, relative_path, module_name, source
-        )
+        validate_packed_shapes(init_spec, parameters_view, relative_path, module_name, short_name, source)
+        validate_chain_length(chain_length, output_args, init_spec, parameters_view, relative_path, module_name, source)
 
         # workspace / workspace_size belong to the harness (abi_contract.md Sec. 11).
         from hpcagent_bench.support.bindings.contract import RESERVED_ARG_NAMES  # cycle: it imports spec
@@ -2048,7 +2046,7 @@ class BenchSpec(BaseModel):
 
 
 @functools.lru_cache(maxsize=1, typed=True)
-def _scan_kernels() -> dict[str, pathlib.Path]:
+def scan_kernels() -> dict[str, pathlib.Path]:
     """Path-key -> manifest path for every kernel; raises ValueError naming both paths when two share a stem."""
     out: dict[str, pathlib.Path] = {}
     base = paths.BENCHMARKS
@@ -2069,7 +2067,7 @@ def selector_slug(selector: str) -> str:
     return selector.strip("/").replace("/", "_").replace("@", "_") or "all"
 
 
-def _split_suffix(selector: str) -> tuple[str, int | None, str | None]:
+def split_suffix(selector: str) -> tuple[str, int | None, str | None]:
     """Split ``<selector>[@lvl<n>|@<tag>]`` into ``(selector, level, tag)``; a ``lvl``-prefixed suffix is always
     validated as a level."""
     at = selector.rfind("@")
@@ -2088,7 +2086,7 @@ def _split_suffix(selector: str) -> tuple[str, int | None, str | None]:
     return base, None, suffix
 
 
-def _safe_level(path_key: str) -> int | None:
+def safe_level(path_key: str) -> int | None:
     """A kernel's resolved level, or ``None`` when its manifest fails to load (level bugs still raise)."""
     try:
         spec = BenchSpec.load(path_key)
@@ -2100,7 +2098,7 @@ def _safe_level(path_key: str) -> int | None:
 @functools.lru_cache(maxsize=1, typed=True)
 def stem_aliases() -> dict[str, str]:
     """Kernel name (manifest stem) -> its path-key."""
-    return {kernel_stem(key): key for key in _scan_kernels()}
+    return {kernel_stem(key): key for key in scan_kernels()}
 
 
 class KernelRegistry:
@@ -2118,7 +2116,7 @@ class KernelRegistry:
 
     def path_key(self, name: str) -> str | None:
         """Canonical path-key for ``name`` (path-key, stem, or dir), or None."""
-        scan = _scan_kernels()
+        scan = scan_kernels()
         if name in scan:
             return name
         alias = stem_aliases().get(name)
@@ -2130,41 +2128,41 @@ class KernelRegistry:
     def get(self, name: str, default: pathlib.Path | None = None) -> pathlib.Path | None:
         """The manifest path for ``name`` (path-key, stem, or dir), or ``default``."""
         key = self.path_key(name)
-        return _scan_kernels()[key] if key is not None else default
+        return scan_kernels()[key] if key is not None else default
 
     def __getitem__(self, name: str) -> pathlib.Path:
         key = self.path_key(name)
         if key is None:
             raise KeyError(name)
-        return _scan_kernels()[key]
+        return scan_kernels()[key]
 
     def __contains__(self, name: str) -> bool:
         return self.path_key(name) is not None
 
     def __iter__(self) -> Iterator[str]:
-        return iter(_scan_kernels())
+        return iter(scan_kernels())
 
     def __len__(self) -> int:
-        return len(_scan_kernels())
+        return len(scan_kernels())
 
     def keys(self) -> KeysView[str]:
         """The canonical path-keys, in scan order."""
-        return _scan_kernels().keys()
+        return scan_kernels().keys()
 
     def specs(self) -> dict[str, "BenchSpec"]:
         """Parse every manifest into a :class:`BenchSpec`, keyed by path-key."""
-        return {k: BenchSpec.from_yaml(load_yaml(p.read_text()), str(p)) for k, p in _scan_kernels().items()}
+        return {k: BenchSpec.from_yaml(load_yaml(p.read_text()), str(p)) for k, p in scan_kernels().items()}
 
     def select_keys(self, selector: str) -> list[str]:
         """Resolve a selection token into a sorted list of PATH-KEYS; ``KeyError`` when nothing matches.
 
         A token is ``all``, a track, a dwarf, a directory prefix or one kernel, optionally filtered by ``@lvl<n>`` or
         ``@<tag>`` (a study tag)."""
-        selector, level, tag = _split_suffix(selector)
-        scan = _scan_kernels()
-        base = sorted(scan) if selector == "all" else self._select_group_or_kernel(selector, scan)
+        selector, level, tag = split_suffix(selector)
+        scan = scan_kernels()
+        base = sorted(scan) if selector == "all" else self.select_group_or_kernel(selector, scan)
         if level is not None:
-            keep = [k for k in base if _safe_level(k) == level]
+            keep = [k for k in base if safe_level(k) == level]
             if not keep:
                 raise KeyError(f"no kernel in {selector!r} has level {level}")
             return keep
@@ -2179,7 +2177,7 @@ class KernelRegistry:
             return keep
         return base
 
-    def _select_group_or_kernel(self, selector: str, scan: dict[str, pathlib.Path]) -> list[str]:
+    def select_group_or_kernel(self, selector: str, scan: dict[str, pathlib.Path]) -> list[str]:
         """The pre-level resolution of a selector to path-keys (track/dwarf/dir/kernel)."""
         s = selector.strip("/")
         # Group selection; a bare dwarf name also resolves as ``scientific_computing/<token>``.
@@ -2201,7 +2199,7 @@ class KernelRegistry:
     def resolved(self) -> list["ResolvedBench"]:
         """Every sub-benchmark across the corpus: one :class:`ResolvedBench` per data layout."""
         out: list[ResolvedBench] = []
-        for key in _scan_kernels():
+        for key in scan_kernels():
             try:
                 out.extend(BenchSpec.load(key).expand_layouts())
             except Exception:  # noqa: BLE001 -- a malformed manifest is skipped
@@ -2210,7 +2208,7 @@ class KernelRegistry:
 
     def refresh(self) -> None:
         """Drop every manifest-derived cache (after manifests change on disk)."""
-        _scan_kernels.cache_clear()
+        scan_kernels.cache_clear()
         stem_aliases.cache_clear()
         load_spec.cache_clear()
         for clear in MANIFEST_DERIVED_CACHES:

@@ -10,7 +10,7 @@ import pytest
 
 from hpcagent_bench import paths
 from hpcagent_bench.categories import Track
-from hpcagent_bench.spec import KERNELS, BenchSpec, _split_suffix, missing_level, validate_level
+from hpcagent_bench.spec import KERNELS, BenchSpec, split_suffix, missing_level, validate_level
 
 
 @pytest.mark.parametrize(
@@ -77,9 +77,9 @@ def test_levels_partition_each_track() -> None:
 
 
 def test_level_suffix_forms_and_errors() -> None:
-    assert _split_suffix("scientific_computing@lvl3") == ("scientific_computing", 3, None)
-    assert _split_suffix("loop_level_reasoning@lvl1") == ("loop_level_reasoning", 1, None)
-    assert _split_suffix("scientific_computing") == ("scientific_computing", None, None)
+    assert split_suffix("scientific_computing@lvl3") == ("scientific_computing", 3, None)
+    assert split_suffix("loop_level_reasoning@lvl1") == ("loop_level_reasoning", 1, None)
+    assert split_suffix("scientific_computing") == ("scientific_computing", None, None)
     # A lvl-prefixed suffix stays a LEVEL and is validated as one; it must not fall through to the
     # open tag vocabulary, where a typo would resolve to "no kernel carries the tag lvl9".
     for bad in (
@@ -96,7 +96,7 @@ def test_level_suffix_forms_and_errors() -> None:
 
 def test_tag_suffix_selects_by_provenance() -> None:
     """``@<label>`` is the second filter on the same syntax: provenance, not difficulty."""
-    assert _split_suffix("scientific_computing@qe") == ("scientific_computing", None, "qe")
+    assert split_suffix("scientific_computing@qe") == ("scientific_computing", None, "qe")
     qe = set(KERNELS.select_keys("scientific_computing@qe"))
     whole = set(KERNELS.select_keys("scientific_computing"))
     assert qe, "no HPC kernel is tagged qe"

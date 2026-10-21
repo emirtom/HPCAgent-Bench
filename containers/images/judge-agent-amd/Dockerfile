@@ -963,7 +963,7 @@ RUN PLUTO_CLANG_MAJOR="${PLUTO_CLANG_MAJOR}" sh /build-pluto.sh && rm -rf /build
 # Ubuntu packages `libisl23` as a build dependency of gcc's Graphite pass. That copy shares ppcg's
 # isl's SONAME but predates `isl_id_set_alloc`, so at RUN time ppcg would die with a symbol lookup
 # error unless something puts /opt/ppcg-install/lib ahead of LD_LIBRARY_PATH. That "something" is
-# hpcagent_bench.ppcg_transform._ppcg_run_env, which every ppcg invocation goes through -- the
+# hpcagent_bench.ppcg_transform.ppcg_run_env, which every ppcg invocation goes through -- the
 # smoke test below exercises the SAME fix, not a build-time-only workaround, so a green image
 # build is actually evidence the run-time path works too.
 #

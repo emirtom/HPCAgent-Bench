@@ -51,7 +51,7 @@ SECTION_ORDER: tuple[str, ...] = (
     TRACK_MACHINE_LEARNING,
     TRACK_OTHER,
 )
-#: Sections sorted by :func:`_sort_key`; the rest keep the caller's order (ML is never ordered).
+#: Sections sorted by :func:`sort_key`; the rest keep the caller's order (ML is never ordered).
 SORTED_SECTIONS: tuple[str, ...] = (TRACK_SCIENTIFIC_COMPUTING, TRACK_LOOP_LEVEL_REASONING)
 
 #: Sort sentinel for an unlabeled level (sorts after 1/2/3).
@@ -93,7 +93,7 @@ def group_label(rm: RowMeta) -> str:
     return rm.track
 
 
-def _sort_key(rm: RowMeta, order: str) -> tuple:
+def sort_key(rm: RowMeta, order: str) -> tuple:
     """Within-section sort key: by group then level (``by_dwarf``) or level then group (``by_level``), then name."""
     lvl = rm.level if rm.level is not None else LEVEL_LAST
     name = rm.short_name.lower()
@@ -141,7 +141,7 @@ def order_rows(rows: Sequence[RowMeta], order: str = BY_DWARF) -> tuple[list[str
         buckets[rm.track if rm.track in buckets else TRACK_OTHER].append(rm)
     ordered: list[RowMeta] = []
     for track, bucket in buckets.items():
-        ordered += sorted(bucket, key=lambda r: _sort_key(r, order)) if track in SORTED_SECTIONS else bucket
+        ordered += sorted(bucket, key=lambda r: sort_key(r, order)) if track in SORTED_SECTIONS else bucket
     return [rm.short_name for rm in ordered], _spans(ordered, order)
 
 

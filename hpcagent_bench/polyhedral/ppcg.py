@@ -76,7 +76,7 @@ def exe_under_prefix(prefix: str | None, name: str) -> str | None:
     return str(candidate) if os.access(candidate, os.X_OK) else None
 
 
-def _ppcg_run_env(exe: str) -> dict[str, str] | None:
+def ppcg_run_env(exe: str) -> dict[str, str] | None:
     """``ppcg``'s run environment: its own ``lib`` dir prepended to ``LD_LIBRARY_PATH`` (``None`` when absent).
 
     RPATH ranks below ``LD_LIBRARY_PATH``, which the image points at an older system ``libisl.so.23`` lacking
@@ -94,7 +94,7 @@ def ppcg_lookup() -> tuple[str | None, str]:
     """The ``ppcg`` this host will run, as ``(exe, "")``, or ``(None, why not)``.
 
     Candidates in order: :data:`PPCG_HOME_ENV`, ``<tools dir>/ppcg/bin/ppcg``, PATH. Each must RUN ``--version``
-    under :func:`_ppcg_run_env` (a broken cache build must not shadow the image's); every refusal is reported."""
+    under :func:`ppcg_run_env` (a broken cache build must not shadow the image's); every refusal is reported."""
     tools_dir = os.environ.get(TOOLS_DIR_ENV)
     # THUNKS: a later source is never consulted once an earlier one answers (an override must stop the PATH search).
     sources: tuple[Callable[[], str | None], ...] = (
@@ -109,7 +109,7 @@ def ppcg_lookup() -> tuple[str | None, str]:
             continue
         try:
             proc = subprocess.run(
-                [exe, "--version"], capture_output=True, text=True, env=_ppcg_run_env(exe), check=False
+                [exe, "--version"], capture_output=True, text=True, env=ppcg_run_env(exe), check=False
             )
         except OSError as exc:
             refused.append(f"{exe} cannot be executed: {exc}")
@@ -340,7 +340,7 @@ def run_ppcg(
             capture_output=True,
             text=True,
             timeout=timeout,
-            env=_ppcg_run_env(str(exe)),
+            env=ppcg_run_env(str(exe)),
             check=False,
         )
         if proc.returncode == 0:

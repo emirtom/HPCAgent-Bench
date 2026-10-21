@@ -161,7 +161,7 @@ perf:
   mode: all_configs_3shapes   # all_configs_3shapes (timed shapes fixed and public) | secret_3shapes (timed
                               # shapes drawn from seeds.secret_shape, hidden). The timed count is the grading
                               # protocol's input count (protocols.py), one config each, round-robin
-                              # (metric._timed_cells).
+                              # (metric.timed_cells).
   n_large_shapes: null        # int >= 1 | null. Timed inputs per grade, set by a grading scope
                               # (grade_under.final_settings); null = the credited protocol's input count.
 

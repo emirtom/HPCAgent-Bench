@@ -80,7 +80,7 @@ class ManifestFreeBench(Benchmark):
     """A ``Benchmark`` that skips the manifest load.
 
     ``call_args`` reads ``bname`` and nothing else -- the paths come through ``_cpp_backend`` and
-    ``_native_base``, which these tests point at a tmp dir. Loading a real corpus entry would tie an
+    ``native_base``, which these tests point at a tmp dir. Loading a real corpus entry would tie an
     argument-ordering test to a kernel whose manifest says nothing about argument ordering.
     """
 
@@ -216,7 +216,7 @@ def test_call_args_declines_when_the_binding_is_absent(tmp_path: pathlib.Path, m
     With no binding there is no safe default, so the only correct answer is to decline."""
     framework = PlutoFramework.__new__(PlutoFramework)
     monkeypatch.setattr(PlutoFramework, "_cpp_backend", lambda self, bench: tmp_path)
-    monkeypatch.setattr(PlutoFramework, "_native_base", lambda self, bench: "mm")
+    monkeypatch.setattr(PlutoFramework, "native_base", lambda self, bench: "mm")
     with pytest.raises(NotSupportedByFramework):
         framework.call_args(ManifestFreeBench(), no_impl, {}, {})
 
@@ -270,7 +270,7 @@ def test_the_ppcg_column_follows_the_local_gpu_toolchain(monkeypatch: pytest.Mon
             f"x_fp64_pluto_input_host.{ext}",
             f"x_fp64_pluto_input_kernel.{ext}",
         ]
-        assert languages._compiler_for_lang(languages._load_compilers(), backend)[0] == compiler
+        assert languages.compiler_for_lang(languages.load_compilers(), backend)[0] == compiler
 
 
 def test_the_named_ppcg_columns_do_not_follow_the_host(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -546,7 +546,7 @@ def test_call_args_marshals_in_polyccs_order_not_the_canonical_abis(
     canonical = [fake_arg("A", "ptr"), fake_arg("B", "ptr"), fake_arg("C", "ptr"), fake_arg("N", "scalar")]
     assert [a.name for a in canonical] != ["N", "A", "B", "C"], "the orders must differ, or this proves nothing"
     monkeypatch.setattr(PlutoFramework, "_cpp_backend", lambda self, bench: tmp_path)
-    monkeypatch.setattr(PlutoFramework, "_native_base", lambda self, bench: "mm")
+    monkeypatch.setattr(PlutoFramework, "native_base", lambda self, bench: "mm")
     monkeypatch.setattr(PlutoFramework, "_abi_args", lambda self, bench: canonical)
     framework = PlutoFramework.__new__(PlutoFramework)
 
@@ -565,9 +565,9 @@ def test_call_args_still_allocates_declared_outputs_after_reordering(
     pluto_binding(tmp_path / "mm_fp64_pluto_binding.json", ("N", "int"), ("C", "ptr_double"))
     declared = [fake_arg("C", "ptr"), fake_arg("N", "scalar")]
     monkeypatch.setattr(PlutoFramework, "_cpp_backend", lambda self, bench: tmp_path)
-    monkeypatch.setattr(PlutoFramework, "_native_base", lambda self, bench: "mm")
+    monkeypatch.setattr(PlutoFramework, "native_base", lambda self, bench: "mm")
     monkeypatch.setattr(PlutoFramework, "_abi_args", lambda self, bench: declared)
-    monkeypatch.setattr(PlutoFramework, "_alloc_output", staticmethod(lambda arg, bdata: f"allocated:{arg.name}"))
+    monkeypatch.setattr(PlutoFramework, "alloc_output", staticmethod(lambda arg, bdata: f"allocated:{arg.name}"))
     framework = PlutoFramework.__new__(PlutoFramework)
 
     args, rest_kwargs = framework.call_args(ManifestFreeBench(), no_impl, {}, {"N": 8})
@@ -613,7 +613,7 @@ def test_build_call_stamps_the_kernel_the_gate_will_ask_about(monkeypatch: pytes
     before timing that still sees one."""
     framework = PlutoFramework.__new__(PlutoFramework)
     framework.fname = "pluto"
-    monkeypatch.setattr(PlutoFramework, "_native_base", lambda self, bench: "pagerank")
+    monkeypatch.setattr(PlutoFramework, "native_base", lambda self, bench: "pagerank")
 
     framework.build_call(ManifestFreeBench(), no_impl, {})
 
@@ -748,7 +748,7 @@ def test_the_transformed_library_computes_the_right_answer(tmp_path: pathlib.Pat
     be built from the untransformed input could not pass this by computing the right answer."""
     write_scop(tmp_path)
 
-    so_path = native_runtime._ensure_built(tmp_path, "mm", "pluto")
+    so_path = native_runtime.ensure_built(tmp_path, "mm", "pluto")
 
     assert so_path.name == "libmm_pluto.so"
     transformed = (tmp_path / "mm_fp64_pluto.c").read_text()
@@ -806,7 +806,7 @@ def test_a_stale_library_is_rebuilt_rather_than_timed(tmp_path: pathlib.Path) ->
     stale.write_bytes(b"not a library")
     os.utime(stale, (0, 0))  # unambiguously older than the transform, whatever the mtime granularity
 
-    so_path = native_runtime._ensure_built(tmp_path, "mm", "pluto")
+    so_path = native_runtime.ensure_built(tmp_path, "mm", "pluto")
 
     assert so_path == stale
     assert stale.read_bytes()[:4] == b"\x7fELF", "a stale .so was returned instead of rebuilt"
@@ -1118,7 +1118,7 @@ def test_ppcg_run_env_puts_its_own_lib_dir_ahead_of_ld_library_path(
     include ``/usr/lib/x86_64-linux-gnu``, where Ubuntu packages an OLDER ``libisl23`` (a gcc
     build dependency) under the SAME soname as the isl ppcg was built against. Left alone, that
     shadows the correct isl and ppcg dies at startup with ``undefined symbol: isl_id_set_alloc``
-    -- so ``_ppcg_run_env`` has to WIN the race by prepending ppcg's own lib dir,
+    -- so ``ppcg_run_env`` has to WIN the race by prepending ppcg's own lib dir,
     not merely appending it or leaving RPATH to sort it out."""
     from hpcagent_bench.polyhedral import ppcg as ppcg_transform
 
@@ -1130,7 +1130,7 @@ def test_ppcg_run_env_puts_its_own_lib_dir_ahead_of_ld_library_path(
     exe.chmod(0o755)
 
     monkeypatch.setenv("LD_LIBRARY_PATH", "/usr/lib/x86_64-linux-gnu")
-    env = ppcg_transform._ppcg_run_env(str(exe))
+    env = ppcg_transform.ppcg_run_env(str(exe))
     assert env is not None
     assert env["LD_LIBRARY_PATH"].split(":")[0] == str(prefix / "lib")
     assert "/usr/lib/x86_64-linux-gnu" in env["LD_LIBRARY_PATH"].split(":")
@@ -1156,7 +1156,7 @@ def test_ppcg_run_env_works_through_a_path_symlink(tmp_path: pathlib.Path, monke
     symlinked.symlink_to(real_exe)
 
     monkeypatch.delenv("LD_LIBRARY_PATH", raising=False)
-    env = ppcg_transform._ppcg_run_env(str(symlinked))
+    env = ppcg_transform.ppcg_run_env(str(symlinked))
     assert env is not None
     assert env["LD_LIBRARY_PATH"] == str(real_prefix / "lib")
 
@@ -1175,7 +1175,7 @@ def test_ppcg_run_env_is_a_noop_with_no_lib_dir_beside_the_exe(
     lone.write_text("#!/bin/sh\n")
     lone.chmod(0o755)
 
-    assert ppcg_transform._ppcg_run_env(str(lone)) is None
+    assert ppcg_transform.ppcg_run_env(str(lone)) is None
 
 
 # A MISSING TOOL IS NOT A KERNEL VERDICT. A sweep on a host without ppcg must not record its rows as
@@ -1370,7 +1370,7 @@ def test_the_ppcg_hip_column_times_and_validates_one_kernel(tmp_path: pathlib.Pa
 
     write_scop(tmp_path)
 
-    so_path = native_runtime._ensure_built(tmp_path, "mm", "ppcg_hip")
+    so_path = native_runtime.ensure_built(tmp_path, "mm", "ppcg_hip")
 
     assert so_path.name == "libmm_ppcg_hip.so"
     device = (tmp_path / "mm_fp64_pluto_input_kernel.hip").read_text()

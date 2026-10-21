@@ -98,7 +98,7 @@ def test_rejects_a_disallowed_grammar_form() -> None:
 
 def test_a_preset_only_the_fuzzed_range_leaves_symbolic_is_skipped_not_rejected() -> None:
     """A concrete preset ('S') resolving the expression is enough; a 'fuzzed' range for the SAME
-    symbol does not also need to resolve -- mirrors _validate_packed_shapes' skip rule."""
+    symbol does not also need to resolve -- mirrors validate_packed_shapes' skip rule."""
     spec = BenchSpec.from_dict(
         raw_manifest(parameters={"S": {"N": 16}, Preset.FUZZED.text: {"N": [4, 64]}}, chain_length={"x": "N"}),
         source="<test>",

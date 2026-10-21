@@ -73,7 +73,7 @@ class LibraryOptimizer(Agent):
     def __init__(self, workdir: pathlib.Path | None = None) -> None:
         self._workdir = pathlib.Path(workdir) if workdir is not None else None
 
-    def _build_so(
+    def build_so(
         self, task: Task, source: str, *, extra_compile: Sequence[str] = (), extra_link: Sequence[str] = ()
     ) -> pathlib.Path:
         """Compile and link ``source`` into a ``.so`` in ``workdir`` or a fresh temp dir (removed on failure)."""
@@ -103,11 +103,11 @@ class LibraryOptimizer(Agent):
             raise
         return lib
 
-    def _library_submission(
+    def library_submission(
         self, task: Task, source: str, *, extra_compile: Sequence[str] = (), extra_link: Sequence[str] = ()
     ) -> Submission:
         """Build ``source`` to a ``.so`` and wrap it in a :class:`Submission` that owns the throwaway build dir."""
-        lib = self._build_so(task, source, extra_compile=extra_compile, extra_link=extra_link)
+        lib = self.build_so(task, source, extra_compile=extra_compile, extra_link=extra_link)
         if self._workdir is not None:
             return Submission(language=task.language, library=str(lib))
         # Tie a throwaway dir's cleanup to the submission, and remove it if wrapping throws.
@@ -123,7 +123,7 @@ class LibraryOptimizer(Agent):
         """Return ``source`` as a source submission, or (``any`` mode) build and submit the ``.so``."""
         if task.source_mode is SourceMode.RESTRICTED:
             return Submission(language=task.language, source=source)
-        return self._library_submission(task, source)
+        return self.library_submission(task, source)
 
 
 @optimizer
@@ -314,7 +314,7 @@ class TunerOptimizer(LibraryOptimizer):
 
     def deliver(self, task: Task, code: str, link: Sequence[str]) -> Submission:
         """``code`` built into the episode's library, linked against ``link``, as the submission."""
-        return self._library_submission(task, code, extra_link=link)
+        return self.library_submission(task, code, extra_link=link)
 
 
 def agent_class(factory: Callable[..., Agent]) -> type[Agent]:

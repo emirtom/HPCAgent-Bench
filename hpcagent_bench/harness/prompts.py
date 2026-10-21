@@ -679,7 +679,7 @@ TRANSFER_CALLS: dict[Language, str] = {Language.CUDA: "cudaMemcpy", Language.HIP
 
 
 class DeliveredFiles(NamedTuple):
-    """The basenames the judge reads a submission's files under (``service._source_from_file``)."""
+    """The basenames the judge reads a submission's files under (``service.source_from_file``)."""
 
     #: What ``source_file`` may be named: the canonical name first, then the accepted alternates.
     source: tuple[str, ...]
@@ -705,7 +705,7 @@ def call_stub(binding: Binding, language: Language, residency: Residency) -> str
         return ""
 
 
-def _baseline_flags(language: Language) -> str:
+def baseline_flags(language: Language) -> str:
     """The baseline compile-flag string shown to the agent; ``""`` for an unknown language."""
     try:
         return languages.baseline_flags(language)
@@ -1107,7 +1107,7 @@ def build_context(
         "lib_name": lib_name,
         "compile_commands": _compile_commands(task.language, source_filename, lib_name),
         "build_families": _build_families(task.language, source_filename, lib_name),
-        "compile_flags": _baseline_flags(task.language),
+        "compile_flags": baseline_flags(task.language),
         "mimalloc_linked": _mimalloc_linked(task.language),
         "thread_stack_mb": config.current().limits.thread_stack_mb,
         # The machine-readable C-ABI, INLINED: no <base>_binding.json exists on the agent path.

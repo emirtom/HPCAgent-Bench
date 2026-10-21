@@ -1350,7 +1350,7 @@ class CallMarshal:
         return cls((*params, WORKSPACE_PTYPE, "int64_t"), ptr_cdecl, scalar_cast, rebase, typedefs)
 
 
-def _call_native_impl(
+def call_native_impl(
     lib_path: "pathlib.Path | str",
     binding: Binding,
     data: KernelData,
@@ -1525,7 +1525,7 @@ def is_host_oom[PayloadT](run: "RunResult[PayloadT]") -> bool:
     return "MemoryError" in (run.error or "")
 
 
-def _call_native(
+def call_native(
     lib_path: "pathlib.Path | str",
     binding: Binding,
     data: KernelData,
@@ -1554,7 +1554,7 @@ def _call_native(
         return RepTiming(ns=elapsed, host_ns=elapsed, residual_ns=quiescence_residual(device_settle))
 
     host_casts = HostCasts(casts.host_library) if casts is not None and casts.host_library else None
-    return _call_native_impl(
+    return call_native_impl(
         lib_path,
         binding,
         data,
@@ -1778,7 +1778,7 @@ def quiescence_residual(device_settle: Callable[[], None]) -> int:
     return time.perf_counter_ns() - t0
 
 
-def _call_native_device(
+def call_native_device(
     lib_path: "pathlib.Path | str",
     binding: Binding,
     data: KernelData,
@@ -1836,7 +1836,7 @@ def _call_native_device(
             precision_casts.device_relayout(cp, src, dst, staged_conversion(staged), inward, staged.shape)
         device_settle()
 
-    return _call_native_impl(
+    return call_native_impl(
         lib_path,
         binding,
         data,
@@ -1869,7 +1869,7 @@ def proc_status_bytes(field: str) -> int:
     return 0
 
 
-def _current_vmsize_bytes() -> int:
+def current_vmsize_bytes() -> int:
     """The process's current VIRTUAL size, for :mod:`hpcagent_bench.harness.papi` (reserved address space)."""
     return proc_status_bytes("VmSize:")
 
@@ -1897,7 +1897,7 @@ def sync_loaded_device_frameworks() -> None:
             pass
 
 
-def _call_python(
+def call_python(
     py_path: "pathlib.Path | str",
     py_meta: PythonMeta,
     data: KernelData,
@@ -2083,7 +2083,7 @@ def device_free_bytes() -> int:
         return 0
 
 
-def _native_call_worker(
+def native_call_worker(
     device: bool,
     lib_path: "pathlib.Path | str",
     binding: Binding,
@@ -2171,9 +2171,9 @@ def _native_call_worker(
     if memory_bytes > 0 and osinfo.IS_LINUX:
         arm_kernel_cap(memory_bytes)
     if lang is Language.PYTHON:
-        if py_meta is None:  # _call_isolated resolves it before the fork
+        if py_meta is None:  # call_isolated resolves it before the fork
             raise RuntimeError("a python delivery needs its (func_name, inputs, outputs) meta")
-        timed_outputs, samples, extras, rep_timings = _call_python(
+        timed_outputs, samples, extras, rep_timings = call_python(
             lib_path,
             py_meta,
             data,
@@ -2188,7 +2188,7 @@ def _native_call_worker(
             host_only=host_only,
         )
     elif device:
-        timed_outputs, samples, extras, rep_timings = _call_native_device(
+        timed_outputs, samples, extras, rep_timings = call_native_device(
             lib_path,
             binding,
             data,
@@ -2204,7 +2204,7 @@ def _native_call_worker(
             casts=casts,
         )
     else:
-        timed_outputs, samples, extras, rep_timings = _call_native(
+        timed_outputs, samples, extras, rep_timings = call_native(
             lib_path,
             binding,
             data,
@@ -2482,7 +2482,7 @@ def rep_check_server(
 
 
 class IsolatedCall(NamedTuple):
-    """What :func:`_call_isolated` measured; ``timed_outputs`` holds every timed rep's outputs in order."""
+    """What :func:`call_isolated` measured; ``timed_outputs`` holds every timed rep's outputs in order."""
 
     outputs: OutputMap
     samples: list[int]
@@ -2540,7 +2540,7 @@ def call_failure[PayloadT](
     return RuntimeError(run.error)
 
 
-def _call_isolated(
+def call_isolated(
     lib_path: "pathlib.Path | str",
     binding: Binding,
     data: KernelData,
@@ -2619,7 +2619,7 @@ def _call_isolated(
             server = rep_check_server(checks, binding, data, py_meta, lang, reps)
             try:
                 run = run_forked(
-                    _native_call_worker,
+                    native_call_worker,
                     use_device,
                     lib_path,
                     binding,
