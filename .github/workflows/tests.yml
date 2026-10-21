@@ -451,7 +451,6 @@ jobs:
           python -m pytest -q -p no:cacheprovider -rfEs --timeout=600 \
             tests/test_agent_tools.py \
             tests/test_noop_optimizer.py \
-            tests/test_blas_optimizer.py \
             tests/test_agent_service.py \
             tests/test_token_usage.py \
             tests/test_harbor.py \

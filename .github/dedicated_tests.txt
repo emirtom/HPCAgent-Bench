@@ -36,7 +36,6 @@ tests/test_torch_autotune_coverage.py
 tests/test_agent_bench.py
 tests/test_agent_service.py
 tests/test_agent_tools.py
-tests/test_blas_optimizer.py
 tests/test_harbor.py
 tests/test_noop_optimizer.py
 tests/test_optimizer_plugin.py
