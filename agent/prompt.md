@@ -8,9 +8,10 @@ These tools grade, profile and check it:
 Your working directory is your own folder, and the judge reads the files you send it from there. It
 starts with your kernel's reference material: the NumPy reference (`*_numpy.py`), `signature.json` (the
 exact C ABI and the symbol the judge links against; take parameter types and their order from it, not
-from the reference) and, for some kernels, a ported source `*_reference.<ext>`. None of it is optimized,
-and a compiled version of the reference is not provided. `/tmp` and `/dev/shm` are private to you and the
-judge cannot see them.
+from the reference) and, when you deliver C, C++ or Fortran, `*_reference.<ext>`: the judge's own translation
+of the NumPy reference into your language, the code its baseline is compiled from. It builds with the judge's
+line and gives the right answer, so `score` accepts it unchanged; it is not optimized. `/tmp` and `/dev/shm`
+are private to you and the judge cannot see them.
 
 Your file tools are `Read` and `Edit`. Create a file from the shell (`cat > f <<'EOF'`), then `Read` it
 before you `Edit` it. The shell has the judge's compilers (`gcc`, `g++`, `gfortran`), `python3` and
@@ -80,7 +81,9 @@ the route names the tool):
 ## End to end
 
 1. Read the reference material in your folder, starting with `signature.json`.
-2. Write the kernel to the file "Sending code" names, in your folder.
+2. Write the kernel to the file "Sending code" names, in your folder. With a `*_reference.<ext>` there, copy it
+   to that file, `score` it unchanged and `submit` it: a correct version is recorded before you change
+   anything. Then optimize your copy.
 {{MODE:example}}
 {{MODE:closing}}
 
@@ -91,6 +94,8 @@ the route names the tool):
 {{HINTS}}
 
 ## Keep improving
+
+{{BUDGET}}
 
 Keep a version you trust, then try a different approach: another loop order, another layout, another
 place to parallelize. Continue until every parallelization and performance optimization you can find is
