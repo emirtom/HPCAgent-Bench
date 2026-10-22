@@ -575,8 +575,11 @@ jobs:
         env:
           HPCAGENT_BENCH_E2E_BACKENDS: "pluto"
           HPCAGENT_BENCH_E2E_SUBSET: ${{ github.event_name == 'workflow_dispatch' && '0' || '1' }}
+        # Two workers: four polycc/isl runs at once exhausted the 16 GB runner (it is shut down mid-step).
+        # The memory line names the largest process when it happens again.
         run: |
-          python -m pytest -q -p no:cacheprovider -rfEs -n auto --dist loadgroup tests/test_e2e_numerical.py
+          (while sleep 10; do echo "[mem] $(free -m | awk '/^Mem/{print $3 "/" $2 " MB"}') $(ps -eo rss=,comm= --sort=-rss | head -1)"; done) &
+          python -m pytest -v -p no:cacheprovider -rfEs -n 2 --dist loadgroup tests/test_e2e_numerical.py
 
       # test_multi_unit_submission.py is the only CI check of a submission built from TWO
       # translation units (the GPU host + device shape); a dropped unit still links as a .so.
