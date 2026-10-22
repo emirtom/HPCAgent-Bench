@@ -8,12 +8,11 @@ import pathlib
 import re
 from collections.abc import Callable, Sequence
 from functools import lru_cache
-from typing import NamedTuple, TypeGuard
 
 from hpcagent_bench.cache_files import write_atomic
 from hpcagent_bench.translators.numpyto_c.pluto_predicate import if_convert
 from hpcagent_bench.translators.numpyto_common import dtypes, operators, parallelism
-from hpcagent_bench.translators.numpyto_common.ast_build import const_int, line_of, name_
+from hpcagent_bench.translators.numpyto_common.ast_build import const_int, line_of, name_, walk_nodes
 from hpcagent_bench.translators.numpyto_common.emit_helpers import fftw
 from hpcagent_bench.translators.numpyto_common.emit_helpers.numpy_names import (
     CONJ_ATTRS,
@@ -32,7 +31,6 @@ from hpcagent_bench.translators.numpyto_common.emitter import (
     TupleTargetSplitter,
     fp8_dtypes_used,
     fp8_function_names,
-    fp8_functions,
     index_rank_error,
 )
 from hpcagent_bench.translators.numpyto_common.frontend import names_used_as_int
@@ -389,7 +387,7 @@ def assigned_names(tree: ast.AST) -> OrderedSet[str]:
     the two backends stay in step.
     """
     names: OrderedSet[str] = OrderedSet()
-    for n in ast.walk(tree):
+    for n in walk_nodes(tree):
         if isinstance(n, ast.Assign):
             names.update(t.id for t in n.targets if isinstance(t, ast.Name))
         elif isinstance(n, ast.AugAssign) and isinstance(n.target, ast.Name):
@@ -665,12 +663,6 @@ class CBodyEmitter(BaseEmitter):
             return target.id, self.emit_expr(args[0]), self.emit_expr(args[1]), self.emit_expr(args[2])
         raise NotImplementedError("range() needs 1-3 args")
 
-    def omp_private_clause(self, node: ast.For, arrays: set[str], reduction_acc: str | None = None) -> str:
-        """`` private(t, u)`` naming the body scalars of a parallel loop as declared (see
-        :func:`parallelism.omp_private_scalars`), or ``""`` when the body binds none."""
-        names = parallelism.omp_private_scalars(node, arrays, reduction_acc)
-        return f" private({', '.join(self.emit_expr(name_(n)) for n in names)})" if names else ""
-
     def omp_loop_prefix(self, node: ast.For, indent: str, sign: int | None) -> str:
         """The OpenMP pragma line for the outermost eligible loop: an independent map gets ``parallel
         for``, a reduction adds ``reduction(op:acc)``; empty when the loop stays serial."""
@@ -799,7 +791,7 @@ class CBodyEmitter(BaseEmitter):
         if not inline_locals:
             return ""
         decls = []
-        for stmt in ast.walk(node):
+        for stmt in walk_nodes(node):
             if not (
                 isinstance(stmt, ast.Assign)
                 and len(stmt.targets) == 1
@@ -1615,13 +1607,13 @@ class CBodyEmitter(BaseEmitter):
     def reads_symbols_only(self, node: ast.expr) -> bool:
         """Every Name read by ``node`` is a kernel SYMBOL -- so the expression is scop-invariant."""
         symbols = {s.name for s in self.kir.symbols}
-        return all(n.id in symbols for n in ast.walk(node) if isinstance(n, ast.Name))
+        return all(n.id in symbols for n in walk_nodes(node) if isinstance(n, ast.Name))
 
     def is_signed_int_operand(self, node: ast.expr) -> bool:
         """Provably a SIGNED integer built from Python ints -- no arrays, no unsigned scalar."""
         if not self.is_int_operand(node, allow_array=False):
             return False
-        for sub in ast.walk(node):
+        for sub in walk_nodes(node):
             if isinstance(sub, ast.Name) and (self.name_dtype(sub.id) or "").startswith("uint"):
                 return False
         return True
@@ -1779,7 +1771,7 @@ class CBodyEmitter(BaseEmitter):
         floats: set = set()
         for unused in range(FIXPOINT_ROUNDS):
             changed = False
-            for node in ast.walk(self.kir.tree):
+            for node in walk_nodes(self.kir.tree):
                 if (
                     isinstance(node, ast.Assign)
                     and len(node.targets) == 1
@@ -2004,7 +1996,7 @@ def collect_implicit_locals(kir: KernelIR) -> list[tuple[str, str]]:
             return c_type_("int")
         return acc_type
 
-    for node in ast.walk(kir.tree):
+    for node in walk_nodes(kir.tree):
         if isinstance(node, ast.Assign):
             for tgt in node.targets:
                 if isinstance(tgt, ast.Name) and tgt.id not in seen:
@@ -2128,7 +2120,7 @@ def branch_scoped_locals(tree: ast.FunctionDef, candidates: set[str]) -> dict[st
       there is no statement list of its own to append the free to, so a local owned there would leak.
     """
     total: dict[str, int] = {}
-    for node in ast.walk(tree):
+    for node in walk_nodes(tree):
         if isinstance(node, ast.Name) and node.id in candidates:
             total[node.id] = total.get(node.id, 0) + 1
     marker_parent: dict[str, list[int]] = {}
@@ -2194,7 +2186,7 @@ def branch_census(stmts: Sequence[ast.stmt], candidates: set[str]) -> tuple[dict
         marker = alloc_marker_target(stmt)
         if marker is not None:
             markers.add(marker)
-        for sub in ast.walk(stmt):
+        for sub in walk_nodes(stmt):
             size += 1
             if isinstance(sub, ast.Name) and sub.id in candidates:
                 counts[sub.id] = counts.get(sub.id, 0) + 1
@@ -2212,7 +2204,7 @@ def value_dependent_test(kir: KernelIR) -> Callable[[ast.expr], bool]:
             isinstance(node, ast.Subscript)
             or (isinstance(node, ast.Constant) and isinstance(node.value, float))
             or (isinstance(node, ast.Name) and node.id in floats)
-            for node in ast.walk(expr)
+            for node in walk_nodes(expr)
         )
 
     return test
@@ -3313,7 +3305,7 @@ RESPELLING_SUFFIX = "_"
 def names_bound_by(tree: ast.AST) -> OrderedSet[str]:
     """Every name ``tree`` binds: parameters, assignment and loop targets, comprehension variables."""
     bound: OrderedSet[str] = OrderedSet()
-    for node in ast.walk(tree):
+    for node in walk_nodes(tree):
         if isinstance(node, ast.arg):
             bound.add(node.arg)
         elif isinstance(node, ast.Assign):
@@ -3338,7 +3330,7 @@ def spelled_names(kir: KernelIR, declared: OrderedSet[str]) -> OrderedSet[str]:
     """Every identifier the kernel spells anywhere, which a respelling must never capture."""
     spelled: OrderedSet[str] = OrderedSet(declared)
     for unit in (kir, *kir.helpers):
-        spelled.update(node.id for node in ast.walk(unit.tree) if isinstance(node, ast.Name))
+        spelled.update(node.id for node in walk_nodes(unit.tree) if isinstance(node, ast.Name))
         spelled.update(token for desc in unit.arrays for dim in desc.shape for token in IDENT_RE.findall(str(dim)))
     return spelled
 

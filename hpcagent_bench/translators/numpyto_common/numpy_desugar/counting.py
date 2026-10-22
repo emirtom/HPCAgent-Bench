@@ -3,7 +3,7 @@
 import ast
 import copy
 
-from hpcagent_bench.translators.numpyto_common.ast_build import const_int, name_, store_
+from hpcagent_bench.translators.numpyto_common.ast_build import const_int, name_, store_, walk_nodes
 from hpcagent_bench.translators.numpyto_common.emit_helpers.numpy_names import numpy_call_attr
 from hpcagent_bench.translators.numpyto_common.numpy_desugar.common import (
     DesugarError,
@@ -98,7 +98,7 @@ class RepeatCountsInline(RankedRewritePass):
         self.generic_visit(node)
         calls = [
             n
-            for n in ast.walk(node.value)
+            for n in walk_nodes(node.value)
             if isinstance(n, ast.Call) and numpy_call_attr(n) == "repeat" and len(n.args) == 2 and not n.keywords
         ]
         pre: list[ast.stmt] = []
@@ -147,7 +147,7 @@ class BincountInline(RankedRewritePass):
     def visit_Assign(self, node: ast.Assign) -> ast.AST | list[ast.stmt]:
         self.generic_visit(node)
         calls = [
-            n for n in ast.walk(node.value) if isinstance(n, ast.Call) and numpy_call_attr(n) == "bincount" and n.args
+            n for n in walk_nodes(node.value) if isinstance(n, ast.Call) and numpy_call_attr(n) == "bincount" and n.args
         ]
         if not calls:
             return node
@@ -272,7 +272,7 @@ class SearchsortedMaterialize(RewritePass):
         self.generic_visit(node)
         calls = [
             n
-            for n in ast.walk(node.value)
+            for n in walk_nodes(node.value)
             if isinstance(n, ast.Call) and numpy_call_attr(n) == "searchsorted" and n.args
         ]
         if not calls:

@@ -4,6 +4,7 @@ import ast
 import copy
 from collections.abc import Iterator, Sequence
 
+from hpcagent_bench.translators.numpyto_common.ast_build import walk_nodes
 from hpcagent_bench.translators.numpyto_common.lowering.mathfuncs import MATH_INTRINSIC_NAMES
 from hpcagent_bench.translators.numpyto_common.lowering.ssa import live_on_loop_reentry, read_in
 from hpcagent_bench.translators.numpyto_common.lowering.tuples import fill_empty_blocks
@@ -107,7 +108,7 @@ def stmt_exprs_by_depth(stmts: Sequence[ast.stmt], depth: int) -> Iterator[tuple
 
 def fwd_subst_is_pure(expr: ast.expr) -> bool:
     """True when ``expr`` recomputes the same value wherever it is replayed."""
-    for node in ast.walk(expr):
+    for node in walk_nodes(expr):
         if isinstance(node, ast.Call):
             if not (isinstance(node.func, ast.Name) and node.func.id in FWD_SUBST_PURE_CALLS and not node.keywords):
                 return False
@@ -141,7 +142,7 @@ class ForwardSubstituteInvariantScalars(ast.NodeTransformer):
 
     def run(self, fn: ast.FunctionDef) -> "ForwardSubstituteInvariantScalars":
         """Substitute every qualifying scalar in ``fn``; one assign leaves per round."""
-        for unused in range(sum(1 for n in ast.walk(fn) if isinstance(n, ast.Assign))):
+        for unused in range(sum(1 for n in walk_nodes(fn) if isinstance(n, ast.Assign))):
             found = self.first_candidate(fn)
             if found is None:
                 break
@@ -184,12 +185,12 @@ class CandidateSearch:
         self.store_counts: dict[str, int] = {}
         self.for_targets: set[str] = set()
         self.written: set[str] = set()
-        for node in ast.walk(fn):
+        for node in walk_nodes(fn):
             if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
                 self.store_counts[node.id] = self.store_counts.get(node.id, 0) + 1
                 self.written.add(node.id)
             elif isinstance(node, ast.For):
-                for tgt in ast.walk(node.target):
+                for tgt in walk_nodes(node.target):
                     if isinstance(tgt, ast.Name):
                         self.for_targets.add(tgt.id)
             elif isinstance(node, (ast.Assign, ast.AugAssign)):
@@ -201,7 +202,7 @@ class CandidateSearch:
         # One pass, so the depth test is O(1) and gates the costly liveness walk.
         self.deepest: dict[str, int] = {}
         for expr, depth in stmt_exprs_by_depth(fn.body, 0):
-            for node in ast.walk(expr):
+            for node in walk_nodes(expr):
                 if (
                     isinstance(node, ast.Name)
                     and isinstance(node.ctx, ast.Load)
@@ -219,7 +220,7 @@ class CandidateSearch:
             return False
         if self.store_counts.get(name, 0) != 1 or self.deepest.get(name, -1) <= depth:
             return False
-        nodes = [n for n in ast.walk(expr) if isinstance(n, ast.expr)]
+        nodes = [n for n in walk_nodes(expr) if isinstance(n, ast.expr)]
         subscripts = [n for n in nodes if isinstance(n, ast.Subscript)]
         if len(subscripts) > FWD_SUBST_MAX_SUBSCRIPTS or len(nodes) > FWD_SUBST_MAX_NODES:
             return False
@@ -234,7 +235,7 @@ class CandidateSearch:
     def operands_stable(self, expr: ast.expr, loop_vars: frozenset[str]) -> bool:
         """Every Name ``expr`` reads is a loop variable, never stored, or stored exactly once outside a
         for-target."""
-        for node in ast.walk(expr):
+        for node in walk_nodes(expr):
             if not (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)):
                 continue
             count = self.store_counts.get(node.id, 0)
@@ -316,6 +317,6 @@ class CandidateSearch:
             return
         body_vars = loop_vars
         if isinstance(stmt, ast.For):
-            body_vars = loop_vars | frozenset(n.id for n in ast.walk(stmt.target) if isinstance(n, ast.Name))
+            body_vars = loop_vars | frozenset(n.id for n in walk_nodes(stmt.target) if isinstance(n, ast.Name))
         self.scan(stmt.body, depth + 1, ((stmt.orelse, *tail)) if stmt.orelse else tail, inner_reentry, body_vars)
         self.scan(stmt.orelse, depth, tail, inner_reentry, loop_vars)

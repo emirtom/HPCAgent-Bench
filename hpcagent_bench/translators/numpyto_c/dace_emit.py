@@ -22,6 +22,7 @@ from hpcagent_bench.translators.numpyto_common.ast_build import (
     numpy_attribute,
     set_field,
     store_,
+    walk_nodes,
 )
 from hpcagent_bench.translators.numpyto_common.emit_helpers.numpy_names import is_numpy_module
 from hpcagent_bench.translators.numpyto_common.emit_helpers.tokens import IDENT_RE
@@ -400,7 +401,7 @@ def declare_unallocated_zeros_locals(
     Declared at the top of the body, which is where the C and Fortran locals are declared too, so a
     shape expressed in the kernel's symbols is in scope wherever the first write happens.
     """
-    used = {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)}
+    used = {n.id for n in walk_nodes(fn) if isinstance(n, ast.Name)}
     missing = [nm for nm in zeros_locals if nm in used and nm not in allocated and nm not in params]
     if not missing:
         return
@@ -1040,7 +1041,7 @@ def ordered_reshape_source(value: ast.expr) -> str | None:
 
 def stored_through(root: ast.AST, name: str) -> bool:
     """Whether some statement under ``root`` writes into ``name``'s elements, as numpy does in place."""
-    for node in ast.walk(root):
+    for node in walk_nodes(root):
         if isinstance(node, ast.AugAssign):
             targets: list[ast.expr] = [node.target]
         elif isinstance(node, ast.Assign):
@@ -1058,7 +1059,7 @@ def stored_through(root: ast.AST, name: str) -> bool:
 
 def name_uses(nodes: Iterable[ast.AST], name: str) -> list[ast.Name]:
     """Every occurrence of ``name`` under ``nodes``, read or bound."""
-    return [found for node in nodes for found in ast.walk(node) if isinstance(found, ast.Name) and found.id == name]
+    return [found for node in nodes for found in walk_nodes(node) if isinstance(found, ast.Name) and found.id == name]
 
 
 def fresh_binding_index(block: Sequence[ast.stmt], at: int, name: str) -> int | None:
@@ -1076,7 +1077,7 @@ def fresh_binding_index(block: Sequence[ast.stmt], at: int, name: str) -> int | 
 
 def statement_blocks(root: ast.AST) -> Iterable[list[ast.stmt]]:
     """Every statement list under ``root``: bodies, else branches and finally blocks."""
-    for node in ast.walk(root):
+    for node in walk_nodes(root):
         yield from (block for block in nested_blocks(node) if block)
 
 
@@ -1466,11 +1467,11 @@ def uniquify_nested_loop_targets(fn_ast: ast.FunctionDef) -> None:
     Only where the shadowed name is read NOWHERE outside the inner loop's own body. A read after the
     inner loop sees the INNER value in Python, and renaming would quietly change which value that is.
     """
-    taken = {n.id for n in ast.walk(fn_ast) if isinstance(n, ast.Name)}
+    taken = {n.id for n in walk_nodes(fn_ast) if isinstance(n, ast.Name)}
 
     def rename(node: ast.For, old: str, new: str) -> None:
         for stmt in [node.target, *node.body, *node.orelse]:
-            for name in ast.walk(stmt):
+            for name in walk_nodes(stmt):
                 if isinstance(name, ast.Name) and name.id == old:
                     name.id = new
 
@@ -1496,10 +1497,10 @@ def uniquify_nested_loop_targets(fn_ast: ast.FunctionDef) -> None:
 
 def read_outside(fn_ast: ast.FunctionDef, loop: ast.For, name: str) -> bool:
     """Is ``name`` LOADED anywhere in ``fn_ast`` other than inside ``loop``'s body?"""
-    inside = {id(n) for stmt in loop.body + loop.orelse for n in ast.walk(stmt)}
+    inside = {id(n) for stmt in loop.body + loop.orelse for n in walk_nodes(stmt)}
     return any(
         isinstance(n, ast.Name) and n.id == name and isinstance(n.ctx, ast.Load) and id(n) not in inside
-        for n in ast.walk(fn_ast)
+        for n in walk_nodes(fn_ast)
     )
 
 
@@ -1513,7 +1514,7 @@ def loop_target_ranks(fn_ast: ast.FunctionDef) -> dict[str, int]:
     :class:`DesugarArrayIteration` before this is read.
     """
     ranks: dict[str, int] = {}
-    for node in ast.walk(fn_ast):
+    for node in walk_nodes(fn_ast):
         if not isinstance(node, ast.For):
             continue
         targets = node.target.elts if isinstance(node.target, ast.Tuple) else [node.target]
@@ -1724,7 +1725,7 @@ class DesugarAugAssign(ast.NodeTransformer):
                 None if part is None else self.once(part, prelude) for part in (expr.lower, expr.upper, expr.step)
             )
             return ast.Slice(lower=lower, upper=upper, step=step)
-        if not any(isinstance(sub, ast.Call) for sub in ast.walk(expr)):
+        if not any(isinstance(sub, ast.Call) for sub in walk_nodes(expr)):
             return copy.deepcopy(expr)
         name = f"__hpcagent_bench_aug{self.counter}"
         self.counter += 1
@@ -1851,7 +1852,7 @@ def view_binding(node: ast.stmt, symbols: frozenset[str] = frozenset()) -> str |
 
 def statement_lists(root: ast.AST) -> list[list[ast.stmt]]:
     """Every statement list in the subtree -- the blocks a name's live range can be confined to."""
-    return [block for parent in ast.walk(root) for block in nested_blocks(parent) if block]
+    return [block for parent in walk_nodes(root) for block in nested_blocks(parent) if block]
 
 
 #: numpy calls that build a FRESH buffer, so the name they bind is a new array rather than a rebind
@@ -1915,7 +1916,7 @@ def binding_regions(
 def written_through(fn: ast.AST) -> set[str]:
     """Names an element or slice store lands on. A copy of one of those is not the same array."""
     names: set[str] = set()
-    for node in ast.walk(fn):
+    for node in walk_nodes(fn):
         targets = (
             node.targets
             if isinstance(node, ast.Assign)
@@ -2009,7 +2010,7 @@ def mixed_view_names(fn: ast.FunctionDef, symbols: frozenset[str] = frozenset())
                 if not isinstance(target, ast.Name):
                     continue
                 (views if view_binding(stmt, symbols) == target.id else valued).add(target.id)
-    for node in ast.walk(fn):
+    for node in walk_nodes(fn):
         loop_target = node.target if isinstance(node, (ast.AugAssign, ast.AnnAssign, ast.For)) else None
         if isinstance(loop_target, ast.Name):
             valued.add(loop_target.id)
@@ -2026,7 +2027,7 @@ def inplace_update_targets(fn: ast.FunctionDef) -> set[int]:
     """
     return {
         id(node.target)
-        for node in ast.walk(fn)
+        for node in walk_nodes(fn)
         if isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name)
     }
 
@@ -2119,7 +2120,7 @@ class ReachingBindings:
         self.block(fn.body, frozenset({UNBOUND}))
 
     def record(self, node: ast.AST, state: frozenset[int]) -> None:
-        for sub in ast.walk(node):
+        for sub in walk_nodes(node):
             if isinstance(sub, ast.Name) and sub.id == self.name:
                 self.reached[id(sub)] = self.reached.get(id(sub), frozenset()) | state
 
@@ -2256,7 +2257,7 @@ class RebindVersioner:
         self.blocks = statement_lists(fn)
         self.stores: dict[str, list[ast.Name]] = {}
         self.loads: dict[str, list[ast.Name]] = {}
-        for node in ast.walk(fn):
+        for node in walk_nodes(fn):
             if isinstance(node, ast.Name):
                 (self.stores if isinstance(node.ctx, ast.Store) else self.loads).setdefault(node.id, []).append(node)
         self.updates = inplace_update_targets(fn)
@@ -2267,7 +2268,7 @@ class RebindVersioner:
     def node_ids(self, stmt: ast.AST) -> set[int]:
         found = self.subtree.get(id(stmt))
         if found is None:
-            found = self.subtree[id(stmt)] = {id(node) for node in ast.walk(stmt)}
+            found = self.subtree[id(stmt)] = {id(node) for node in walk_nodes(stmt)}
         return found
 
     def declines(self, name: str) -> bool:
@@ -2299,7 +2300,7 @@ class RebindVersioner:
             if isinstance(bound, ast.Name):
                 bound.id = renamed
             for stmt in owned:
-                for node in ast.walk(stmt):
+                for node in walk_nodes(stmt):
                     if isinstance(node, ast.Name) and node.id == name:
                         node.id = renamed
         return False
@@ -2423,7 +2424,7 @@ class ResolveShapeReads(ast.NodeTransformer):
     def note_alias(self, name: str, value: ast.expr) -> None:
         """Record ``name = <integer expression>`` so :meth:`canon` can substitute it away."""
         rank0 = {nm for nm, shape in self.shapes.items() if shape == []}
-        reads_self = any(isinstance(n, ast.Name) and n.id == name for n in ast.walk(value))
+        reads_self = any(isinstance(n, ast.Name) and n.id == name for n in walk_nodes(value))
         # A rebind and a self-update (``n = n + 1``, once per loop trip) are both dropped: an alias
         # standing for the wrong trip would equate two extents that differ.
         if name in self.alias_seen or reads_self or not is_symbol_expr(value, rank0 | set(self.aliases)):
@@ -2544,7 +2545,7 @@ class ResolveShapeReads(ast.NodeTransformer):
             and value.func.attr in ELEMENTWISE_CALLS
         )
         return elementwise and any(
-            isinstance(n, ast.Name) and n.id == name and isinstance(n.ctx, ast.Load) for n in ast.walk(value)
+            isinstance(n, ast.Name) and n.id == name and isinstance(n.ctx, ast.Load) for n in walk_nodes(value)
         )
 
     def tuple_tokens(self, node: ast.expr) -> list[str] | None:
@@ -2870,7 +2871,7 @@ def float_names(fn_ast: ast.FunctionDef, declared: set[str]) -> set[str]:
     floats = set(declared)
     while True:
         grown: set[str] = set()
-        for node in ast.walk(fn_ast):
+        for node in walk_nodes(fn_ast):
             if not isinstance(node, (ast.Assign, ast.AugAssign)) or not is_float_expr(node.value, floats):
                 continue
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
@@ -2924,7 +2925,7 @@ def widen_int_seeds(fn_ast: ast.FunctionDef, floats: set[str], skip: set[str]) -
     (dace issue 06), so the convergence loop it opens exits after two trips: seed it as a float."""
     seeds: dict[str, list[ast.Assign]] = {}
     widen: set[str] = set()
-    for node in ast.walk(fn_ast):
+    for node in walk_nodes(fn_ast):
         if not (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)):
             continue
         name = node.targets[0].id
@@ -3037,7 +3038,7 @@ class HoistCompoundExtents(ast.NodeTransformer):
     def collect(self, fn_ast: ast.FunctionDef) -> None:
         defined = set(self.known)
         for index, stmt in enumerate(fn_ast.body):
-            for node in ast.walk(stmt):
+            for node in walk_nodes(stmt):
                 shape = reshape_argument(node)
                 if shape is None:
                     continue
@@ -3048,7 +3049,7 @@ class HoistCompoundExtents(ast.NodeTransformer):
                     if text not in self.names:
                         self.names[text] = f"__hpcagent_bench_extent{len(self.names)}"
                         self.plan.append((index, self.names[text], element))
-            for node in ast.walk(stmt):
+            for node in walk_nodes(stmt):
                 if isinstance(node, ast.Assign):
                     defined.update(t.id for t in node.targets if isinstance(t, ast.Name))
 
@@ -3086,7 +3087,7 @@ def shape_base_ids(node: ast.expr) -> set[int]:
     """``id()`` of every Name read as ``<x>.shape`` -- x is a DIMENSION source, never an integer value."""
     return {
         id(a.value)
-        for a in ast.walk(node)
+        for a in walk_nodes(node)
         if isinstance(a, ast.Attribute) and a.attr == "shape" and isinstance(a.value, ast.Name)
     }
 
@@ -3108,7 +3109,7 @@ def shape_reaching_names(body: ast.expr, direct: set[str]) -> set[str]:
     following it drags whole arrays in and makes an array alias read as a size expression.
     """
     assigns: dict[str, list[ast.expr]] = {}
-    for node in ast.walk(body):
+    for node in walk_nodes(body):
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
             assigns.setdefault(node.targets[0].id, []).append(node.value)
     reaching = set(direct)
@@ -3116,7 +3117,7 @@ def shape_reaching_names(body: ast.expr, direct: set[str]) -> set[str]:
     while frontier:
         for rhs in assigns.get(frontier.pop(), ()):
             bases = shape_base_ids(rhs)
-            for sub in ast.walk(rhs):
+            for sub in walk_nodes(rhs):
                 if isinstance(sub, ast.Name) and id(sub) not in bases and sub.id not in reaching:
                     reaching.add(sub.id)
                     frontier.append(sub.id)
@@ -3168,13 +3169,13 @@ def freeze_pinned_extent_scalars(kir: KernelIR) -> KernelIR:
             declared.update(IDENT_RE.findall(str(token)))
     probe = NormalizeReshape().visit(copy.deepcopy(kir.tree))
     seeds: set[str] = set()
-    for node in ast.walk(probe):
+    for node in walk_nodes(probe):
         shape_arg = shape_argument(node)
         if shape_arg is None:
             continue
         elements = shape_arg.elts if isinstance(shape_arg, (ast.Tuple, ast.List)) else [shape_arg]
         for element in elements:
-            seeds.update(n.id for n in ast.walk(element) if isinstance(n, ast.Name))
+            seeds.update(n.id for n in walk_nodes(element) if isinstance(n, ast.Name))
     frozen: dict[str, int] = {}
     for name in shape_reaching_names(probe, seeds) - seeds:
         if name not in scalars or name in declared:
@@ -3231,11 +3232,11 @@ def frozen_extent(dim: str, values: dict[str, int]) -> str:
 def shape_ident_candidates(fn_ast: ast.FunctionDef, known: set[str]) -> set[str]:
     """Identifiers in an np.zeros/empty/ones shape arg not already array/scalar/symbol -- promotion candidates."""
     names: set[str] = set()
-    for node in ast.walk(fn_ast):
+    for node in walk_nodes(fn_ast):
         shape_arg = shape_argument(node)
         if shape_arg is not None:
             shape_bases = shape_base_ids(shape_arg)
-            for sub in ast.walk(shape_arg):
+            for sub in walk_nodes(shape_arg):
                 if isinstance(sub, ast.Name) and id(sub) not in shape_bases and sub.id not in known:
                     names.add(sub.id)
     return names
@@ -3255,7 +3256,7 @@ def scan_size_assigns(
     counts: dict[str, int] = {}
     plain: set[int] = set()
     mutated: set[str] = set()
-    for node in ast.walk(fn_ast):
+    for node in walk_nodes(fn_ast):
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
             nm = node.targets[0].id
             plain.add(id(node.targets[0]))
@@ -3283,7 +3284,7 @@ def once_bound_locals(fn_ast: ast.FunctionDef, known: set[str]) -> set[str]:
     """
     bindings: dict[str, int] = {}
     stored: set[str] = set()
-    for node in ast.walk(fn_ast):
+    for node in walk_nodes(fn_ast):
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
             bindings[node.id] = bindings.get(node.id, 0) + 1  # every rebinding: assign, augassign, for, walrus
         elif isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Store) and isinstance(node.value, ast.Name):
@@ -3312,7 +3313,7 @@ def constant_int_locals(fn_ast: ast.FunctionDef, known: set[str]) -> set[str]:
         if is_symbol_expr(first_rhs[nm], set())
         and not any(
             isinstance(sub, ast.Name) or (isinstance(sub, ast.Constant) and isinstance(sub.value, bool))
-            for sub in ast.walk(first_rhs[nm])
+            for sub in walk_nodes(first_rhs[nm])
         )
     }
 
@@ -3340,7 +3341,7 @@ def mintable_int_locals(fn_ast: ast.FunctionDef, symbols: set[str], known: set[s
             for nm in order
             if nm not in cand
             and is_symbol_expr(first_rhs[nm], atoms)
-            and any(isinstance(sub, ast.Name) and sub.id in atoms for sub in ast.walk(first_rhs[nm]))
+            and any(isinstance(sub, ast.Name) and sub.id in atoms for sub in walk_nodes(first_rhs[nm]))
         }
         if not grown:
             return cand
@@ -3391,7 +3392,7 @@ def loop_induction_symbols(fn_ast: ast.FunctionDef) -> OrderedSet[str]:
     folded to its induction variable the extent is the span expression itself, spelled once.
     """
     names: OrderedSet[str] = OrderedSet()
-    for node in ast.walk(fn_ast):
+    for node in walk_nodes(fn_ast):
         if (
             isinstance(node, ast.For)
             and isinstance(node.target, ast.Name)
@@ -3683,7 +3684,7 @@ def names_a_clamp(node: ast.expr) -> bool:
     """
     return any(
         isinstance(sub, ast.Call) and isinstance(sub.func, ast.Name) and sub.func.id in ("min", "max")
-        for sub in ast.walk(node)
+        for sub in walk_nodes(node)
     )
 
 
@@ -3708,14 +3709,14 @@ def spell_aranges_with_named_lengths(fn_ast: ast.FunctionDef, known: set[str]) -
     lengths: dict[str, ast.expr] = {}
     for name in once:
         rhs = first_rhs.get(name)
-        if rhs is not None and is_symbol_expr(rhs, {n.id for n in ast.walk(rhs) if isinstance(n, ast.Name)}):
+        if rhs is not None and is_symbol_expr(rhs, {n.id for n in walk_nodes(rhs) if isinstance(n, ast.Name)}):
             lengths[name] = rhs
     if not lengths:
         return
     for block in statement_lists(fn_ast):
         seen: dict[str, ast.expr] = {}
         for stmt in block:
-            for node in ast.walk(stmt):
+            for node in walk_nodes(stmt):
                 assign = node if isinstance(node, ast.Assign) else None
                 call = assign.value if assign is not None else None
                 if assign is None or not (
@@ -3747,7 +3748,7 @@ def names_rebound(fn_ast: ast.FunctionDef) -> set[str]:
     """Names stored more than once in the function (an augmented target is a store too): their value depends
     on the path taken, so an alias reading one is only good up to that store, not past it."""
     counts: dict[str, int] = {}
-    for node in ast.walk(fn_ast):
+    for node in walk_nodes(fn_ast):
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
             counts[node.id] = counts.get(node.id, 0) + 1
     return {name for name, count in counts.items() if count > 1}
@@ -3774,7 +3775,7 @@ def rebind_boundary(block: Sequence[ast.stmt], start: int, sources: set[str]) ->
     for idx in range(start, len(block)):
         if any(
             isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and node.id in sources
-            for node in ast.walk(block[idx])
+            for node in walk_nodes(block[idx])
         ):
             return idx
     return len(block)
@@ -3795,7 +3796,7 @@ def splice_before_rebind(block: list[ast.stmt], start: int, nm: str, rhs: ast.ex
 def name_loaded(fn_ast: ast.AST, nm: str) -> bool:
     """True iff some read of ``nm`` is still standing in the tree."""
     return any(
-        isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id == nm for node in ast.walk(fn_ast)
+        isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id == nm for node in walk_nodes(fn_ast)
     )
 
 
@@ -3826,7 +3827,7 @@ def inline_symbol_aliases(fn_ast: ast.FunctionDef, symbols: set[str], known: set
         # Folded at every splice, or a deep net nests one layer's extent inside the next until the
         # expression is hundreds of terms and dace's sympy stops finishing the parse.
         rhs = fold_expr(SubstituteLoads(alias).visit(copy.deepcopy(first_rhs[nm])))
-        sources = {sub.id for sub in ast.walk(first_rhs[nm]) if isinstance(sub, ast.Name) and sub.id in rebound}
+        sources = {sub.id for sub in walk_nodes(first_rhs[nm]) if isinstance(sub, ast.Name) and sub.id in rebound}
         if not sources:
             alias[nm] = rhs
             continue
@@ -3911,7 +3912,7 @@ def body_allocated_shape(body: Sequence[ast.stmt], hret: str, values: set[str]) 
     # ``acc / kernel_size`` is ``acc``'s shape: ``values`` names what carries a VALUE rather than
     # an extent, so peeling those leaves the one array the store is shaped by. Two of them left is
     # a broadcast this cannot size, and it declines rather than pick one.
-    written = list({n.id for n in ast.walk(value) if isinstance(n, ast.Name) and n.id not in values})
+    written = list({n.id for n in walk_nodes(value) if isinstance(n, ast.Name) and n.id not in values})
     if len(written) != 1:
         return None
     allocations = [
@@ -4058,7 +4059,7 @@ def plan_size_promotion(
         return [], [], OrderedSet()
     body_assigned = {
         a.targets[0].id
-        for a in ast.walk(fn_ast)
+        for a in walk_nodes(fn_ast)
         if isinstance(a, ast.Assign) and len(a.targets) == 1 and isinstance(a.targets[0], ast.Name)
     }
     # Transitive closure: a promoted def's operands must be symbols too (m = min(max_iter, n) drags in n).
@@ -4070,7 +4071,7 @@ def plan_size_promotion(
             # ``h__ssa3.shape[2]`` reads a DIMENSION: dragging h__ssa3 in makes an array alias
             # (``h = x``) look like a symbol expression, since ``x`` is a known name.
             bases = shape_base_ids(first_rhs[nm])
-            for sub in ast.walk(first_rhs[nm]):
+            for sub in walk_nodes(first_rhs[nm]):
                 if not isinstance(sub, ast.Name) or id(sub) in bases:
                     continue
                 if sub.id not in known and sub.id not in cand and sub.id in body_assigned:
@@ -4180,7 +4181,7 @@ def bound_names(body: Sequence[ast.stmt]) -> OrderedSet[str]:
     """
     names: OrderedSet[str] = OrderedSet()
     for stmt in body:
-        for node in ast.walk(stmt):
+        for node in walk_nodes(stmt):
             if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
                 names.add(node.id)
     return names
@@ -4197,7 +4198,7 @@ def names_logical_sparse(kir: KernelIR) -> bool:
     if not kir.sparse:
         return False
     logical = set(kir.sparse)
-    return any(isinstance(n, ast.Name) and n.id in logical for n in ast.walk(kir.tree))
+    return any(isinstance(n, ast.Name) and n.id in logical for n in walk_nodes(kir.tree))
 
 
 def called_helpers(body: Sequence[ast.stmt], helpers: list[KernelIR]) -> OrderedSet[str]:
@@ -4206,7 +4207,7 @@ def called_helpers(body: Sequence[ast.stmt], helpers: list[KernelIR]) -> Ordered
     names = OrderedSet(h.kernel_name for h in helpers)
     called: OrderedSet[str] = OrderedSet()
     for stmt in body:
-        for node in ast.walk(stmt):
+        for node in walk_nodes(stmt):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
                 fid = node.func.id
                 if any(fid == n or fid.startswith(f"{n}__") for n in names):
@@ -4304,7 +4305,7 @@ def materialize_strided_helper_args(
     def materialized(stmt: ast.stmt) -> list[ast.stmt]:
         pre: list[ast.stmt] = []
         post: list[ast.stmt] = []
-        for call in [n for n in ast.walk(stmt) if isinstance(n, ast.Call)]:
+        for call in [n for n in walk_nodes(stmt) if isinstance(n, ast.Call)]:
             if not isinstance(call.func, ast.Name):
                 continue
             flags = written_by.get(call.func.id)
@@ -4689,20 +4690,20 @@ def body_extent_names(tree: ast.FunctionDef) -> set[str]:
     """The names the body's shape arguments read, bar a rebound one. Normalized on a COPY so both
     reshape spellings reach ``shape_argument`` in the one form it reads."""
     body_probe = NormalizeReshape().visit(copy.deepcopy(tree))
-    rebound = {n.id for n in ast.walk(body_probe) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+    rebound = {n.id for n in walk_nodes(body_probe) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
     rebound |= {
         n.value.id
-        for n in ast.walk(body_probe)
+        for n in walk_nodes(body_probe)
         if isinstance(n, ast.Subscript) and isinstance(n.ctx, ast.Store) and isinstance(n.value, ast.Name)
     }
     names: set[str] = set()
-    for node in ast.walk(body_probe):
+    for node in walk_nodes(body_probe):
         shape_arg = shape_argument(node)
         if shape_arg is None:
             continue
         elements = shape_arg.elts if isinstance(shape_arg, (ast.Tuple, ast.List)) else [shape_arg]
         for element in elements:
-            names |= {sub.id for sub in ast.walk(element) if isinstance(sub, ast.Name) and sub.id not in rebound}
+            names |= {sub.id for sub in walk_nodes(element) if isinstance(sub, ast.Name) and sub.id not in rebound}
     return names
 
 
@@ -4817,7 +4818,7 @@ def retired_unused_symbols(
     """``(symbol_names, symbol_defs)`` without the prunable symbols the settled program never names;
     a kept recipe reads its operands, so they stay bound."""
     used = {i for param in params for i in IDENT_RE.findall(param.split(":", 1)[1])}
-    used |= {n.id for n in ast.walk(ast.Module(body=body, type_ignores=[])) if isinstance(n, ast.Name)}
+    used |= {n.id for n in walk_nodes(ast.Module(body=body, type_ignores=[])) if isinstance(n, ast.Name)}
     while True:
         kept = {n for n, unused in symbol_defs if n in used or n not in prunable}
         reached = {i for n, e in symbol_defs if n in kept for i in IDENT_RE.findall(e)} - used
@@ -4877,7 +4878,7 @@ def without_pinned_symbols(
     symbol_defs = [
         (n, ast.unparse(SubstituteLoads(literals).visit(ast.parse(e, mode="eval")).body)) for n, e in symbol_defs
     ]
-    named = {node.id for stmt in body for node in ast.walk(stmt) if isinstance(node, ast.Name)}
+    named = {node.id for stmt in body for node in walk_nodes(stmt) if isinstance(node, ast.Name)}
     named |= {ident for param in params for ident in IDENT_RE.findall(param)}
     return symbol_names, symbol_defs, {n: v for n, v in pinned.items() if n in named}
 
@@ -4909,7 +4910,7 @@ def caller_side_recipe(owner: ast.FunctionDef, arg: ast.expr, pinned: dict[str, 
         return folded_with_constants(ast.unparse(arg), pinned)
     bound = [
         st.value
-        for st in ast.walk(owner)
+        for st in walk_nodes(owner)
         if isinstance(st, ast.Assign)
         and len(st.targets) == 1
         and isinstance(st.targets[0], ast.Name)
@@ -4993,7 +4994,7 @@ def helper_call_bindings(owner: ast.FunctionDef, hkir: KernelIR, pinned: dict[st
     """
     calls = [
         node
-        for node in ast.walk(owner)
+        for node in walk_nodes(owner)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == hkir.kernel_name
     ]
     if not calls:
@@ -5202,7 +5203,7 @@ def with_solvable_extents(hkir: KernelIR) -> KernelIR:
     bare ``H`` beside an ``H - 2``) are all determined already, and respelling those would retire a
     name the body or a sibling extent still needs.
     """
-    body_names = {n.id for n in ast.walk(hkir.tree) if isinstance(n, ast.Name)}
+    body_names = {n.id for n in walk_nodes(hkir.tree) if isinstance(n, ast.Name)}
     bare = {str(d).strip() for a in hkir.arrays for d in a.shape if IDENT_RE.fullmatch(str(d).strip())}
     supplied = body_names | bare | set(hkir.pinned_consts) | set(hkir.inlined_consts)
     taken = {a.name for a in hkir.arrays} | {s.name for s in hkir.scalars} | {s.name for s in hkir.symbols}
@@ -5324,14 +5325,14 @@ def symbolic_float_arguments(owner: ast.FunctionDef, hkir: KernelIR, symbols: se
     """
     bound = {
         target.id: node.value
-        for node in ast.walk(owner)
+        for node in walk_nodes(owner)
         if isinstance(node, ast.Assign)
         for target in node.targets
         if isinstance(target, ast.Name)
     }
     passed = {
         arg.id
-        for node in ast.walk(owner)
+        for node in walk_nodes(owner)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == hkir.kernel_name
         for arg in node.args
         if isinstance(arg, ast.Name)
@@ -5341,7 +5342,7 @@ def symbolic_float_arguments(owner: ast.FunctionDef, hkir: KernelIR, symbols: se
         value = bound.get(arg)
         if value is None:
             continue
-        nodes = list(ast.walk(value))
+        nodes = list(walk_nodes(value))
         floats = any(isinstance(n, ast.Constant) and isinstance(n.value, float) for n in nodes)
         symbolic = any(isinstance(n, ast.Name) and n.id in symbols for n in nodes)
         if floats and symbolic:
@@ -5467,7 +5468,7 @@ def bind_helper_calls(
 ) -> None:
     """Rewrite every call in ``body`` that names one of the rendered helpers."""
     for stmt in body:
-        for node in ast.walk(stmt):
+        for node in walk_nodes(stmt):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in rendered_by_name:
                 bind_helper_call(node, kir_by_name[node.func.id], rendered_by_name[node.func.id])
 
@@ -5489,7 +5490,7 @@ def returns_removed(stmts: Sequence[ast.stmt], tail: Sequence[ast.stmt], name: s
             if stmt.value is not None:
                 out.append(stmt)
             return out
-        if not any(isinstance(node, ast.Return) for node in ast.walk(stmt)):
+        if not any(isinstance(node, ast.Return) for node in walk_nodes(stmt)):
             out.append(stmt)
             continue
         if not isinstance(stmt, ast.If):

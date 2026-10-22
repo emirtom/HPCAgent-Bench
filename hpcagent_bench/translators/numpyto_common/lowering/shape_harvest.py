@@ -4,6 +4,7 @@ import ast
 from collections.abc import Sequence
 from types import NotImplementedType
 
+from hpcagent_bench.translators.numpyto_common.ast_build import walk_nodes
 from hpcagent_bench.translators.numpyto_common.emit_helpers.numpy_names import is_numpy_module, numpy_submodule_attr
 from hpcagent_bench.translators.numpyto_common.frontend import collect_inlined_scalar_defs, dtype_from_constructor
 from hpcagent_bench.translators.numpyto_common.lib_nodes.dims import (
@@ -161,7 +162,7 @@ def harvest_local_shapes(
     # it (conv_standard_1d's zero-padded buffer). ast.walk is not source order, so aliases are
     # deferred and applied only to targets no allocation claimed.
     aliases: list[tuple[str, str]] = []
-    for stmt in ast.walk(tree):
+    for stmt in walk_nodes(tree):
         if not isinstance(stmt, ast.Assign) or len(stmt.targets) != 1:
             continue
         target = stmt.targets[0]

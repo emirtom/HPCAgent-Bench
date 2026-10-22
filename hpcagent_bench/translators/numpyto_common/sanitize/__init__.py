@@ -15,6 +15,7 @@ the hpcagent_bench application.
 
 import ast
 
+from hpcagent_bench.translators.numpyto_common.ast_build import walk_nodes
 from hpcagent_bench.translators.numpyto_common.sanitize.comments import strip_comments, tree_sitter_available
 
 __all__ = [
@@ -28,7 +29,7 @@ __all__ = [
 def strip_docstrings_(tree: ast.AST) -> None:
     """Drop the leading string-expression statement of the module and of every
     function / class definition."""
-    for node in ast.walk(tree):
+    for node in walk_nodes(tree):
         if not isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             continue  # only these carry a docstring; guarding first lets us read .body directly
         body = node.body

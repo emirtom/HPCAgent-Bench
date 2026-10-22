@@ -5,6 +5,7 @@ Entry point: :func:`desugar_for_python_backend`. Each submodule owns one family 
 
 import ast
 
+from hpcagent_bench.translators.numpyto_common.ast_build import walk_nodes
 from hpcagent_bench.translators.numpyto_common.ir import ArrayDesc, KernelIR, ScalarDesc
 from hpcagent_bench.translators.numpyto_common.numpy_desugar.common import (
     AUG_OP_SRC,
@@ -198,7 +199,7 @@ def desugar_for_python_backend(source: str, kir: KernelIR, backend: str | None =
     kernel = next((n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == kir.kernel_name), None)
     if backend in DEFAULT_FOLDING_BACKENDS and kernel is not None and has_defaulted_parameters(kernel):
         changed = fold_kernel_defaults(kernel, kir.input_args)
-    all_funcs = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]
+    all_funcs = [n for n in walk_nodes(tree) if isinstance(n, ast.FunctionDef)]
     if backend == "numba":
         changed = fold_constant_helper_arguments(tree, kir.kernel_name) or changed
         for func in all_funcs:

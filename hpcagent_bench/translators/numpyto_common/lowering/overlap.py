@@ -13,7 +13,7 @@ import ast
 import copy
 from collections.abc import Sequence
 
-from hpcagent_bench.translators.numpyto_common.ast_build import name_, range_for, store_
+from hpcagent_bench.translators.numpyto_common.ast_build import name_, range_for, store_, walk_nodes
 from hpcagent_bench.translators.numpyto_common.lib_nodes.dims import constant_difference
 from hpcagent_bench.translators.numpyto_common.lowering.indexing import binop
 
@@ -30,7 +30,7 @@ def index_list(sub: ast.Subscript) -> list[ast.expr]:
 
 
 def mentions(expr: ast.expr, names: set[str]) -> bool:
-    return any(isinstance(n, ast.Name) and n.id in names for n in ast.walk(expr))
+    return any(isinstance(n, ast.Name) and n.id in names for n in walk_nodes(expr))
 
 
 def index_distance(read: ast.expr, write: ast.expr) -> int | None:
@@ -66,8 +66,8 @@ def reads_a_stored_cell(
     Anything not decided is reported as a possible overlap: staging it costs a temp, while a wrong
     "safe" is a silent miscompile.
     """
-    subscript_bases = {id(n.value) for n in ast.walk(rhs) if isinstance(n, ast.Subscript)}
-    for node in ast.walk(rhs):
+    subscript_bases = {id(n.value) for n in walk_nodes(rhs) if isinstance(n, ast.Subscript)}
+    for node in walk_nodes(rhs):
         if isinstance(node, ast.Name) and node.id == array and id(node) not in subscript_bases:
             # A bare whole-array read inside an element expression: nothing to compare.
             return True
