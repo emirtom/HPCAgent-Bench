@@ -65,6 +65,10 @@ experiment:
         SGLANG_EXTRA_ARGS: '"--trust-remote-code --watchdog-timeout 1800 --kv-cache-dtype fp8_e4m3 --page-size 64 --context-length 262144 --mem-fraction-static 0.57 --max-total-tokens 1500000 --chunked-prefill-size 4096 --max-running-requests 24 --cuda-graph-max-bs-decode 24 --enable-metrics --pre-warm-nccl --reasoning-parser glm45 --tool-call-parser glm47 --dsa-prefill-backend tilelang --dsa-decode-backend tilelang --enable-cache-report"'
       EFFORT_LADDER: '""'
       CONTEXT_LENGTH: 262144
+    apertus15:
+      # thinking is a chat-template switch (enable_thinking), not a reasoning_effort rung
+      EFFORT_LADDER: '""'
+      CONTEXT_LENGTH: 262144
 
 # mlscale (tag mlscale20): HIP + RCCL / GPU-aware MPI kernels. The llr serving, a longer wall clock for the
 # multi-GPU grading loop. Every grade is measured under both scaling laws at P = 1, 2 and 4 ranks on

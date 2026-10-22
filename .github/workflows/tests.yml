@@ -716,6 +716,15 @@ jobs:
         run: |
           python -m pytest -q -p no:cacheprovider -rfEs --timeout=600 tests/test_mlscale_part2_real_launch.py
 
+      # The SuiteSparse archives never change; a mirror outage (403/503) must not turn the ports red.
+      - name: Setup -- restore the SuiteSparse matrices
+        id: suitesparse
+        if: ${{ !cancelled() }}
+        uses: actions/cache/restore@v5
+        with:
+          path: ${{ github.workspace }}/.hpcagent_bench_cache/suitesparse
+          key: suitesparse-v1
+
       # --forked: a port oracle is native code behind ctypes, and a bad index aborts the
       # interpreter; forked, it is one red test. cegterg is its own step. Two xdist workers with two BLAS
       # threads each fill the runner's 4 cores: serial took 15.6 min of this step's 16, and the largest
@@ -755,6 +764,13 @@ jobs:
         run: |
           python -m pytest -q -p no:cacheprovider -p tests.openmp_launch_plugin -rfEs --import-mode=importlib \
             -n auto --timeout=600 hpcagent_bench/benchmarks/
+
+      - name: Save the SuiteSparse matrices
+        if: ${{ always() && steps.suitesparse.outputs.cache-hit != 'true' && hashFiles('.hpcagent_bench_cache/suitesparse/**/*.mtx') != '' }}
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ github.workspace }}/.hpcagent_bench_cache/suitesparse
+          key: suitesparse-v1
 
       # The ML ports still compute what their PyTorch models compute; UNALIGNED is a ratchet. Every ML
       # kernel resolves to a torch reference that agrees with its numpy oracle.

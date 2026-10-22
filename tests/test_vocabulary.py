@@ -17,6 +17,7 @@ PINNED_MODELS = (
     "oss120b",
     "kimi27sglang",
     "glm53",
+    "apertus15",
 )
 
 PINNED_OPTIMIZERS = (
