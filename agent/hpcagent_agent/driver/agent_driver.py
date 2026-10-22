@@ -1640,7 +1640,10 @@ def pin(process: subprocess.Popen[bytes], cpus: list[int], memory_bytes: int, lo
     """Confine ``process`` (and what it forks later) to ``cpus`` and ``memory_bytes`` of private writable memory
     per process (``RLIMIT_DATA``; 0: no cap) after the spawn (``preexec_fn`` is unsafe with threads). Never raises.
 
-    ``RLIMIT_DATA`` counts malloc and anonymous writable mappings, not the address space ROCm or V8 reserve."""
+    ``RLIMIT_DATA`` counts malloc and anonymous writable mappings, not the address space ROCm or V8 reserve.
+    A pid <= 0 names no child (to ``prlimit`` and ``sched_setaffinity``, 0 is the caller) and is left alone."""
+    if process.pid <= 0:
+        return
     if cpus:
         try:
             os.sched_setaffinity(process.pid, set(cpus))
