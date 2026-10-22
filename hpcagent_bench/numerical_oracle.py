@@ -91,11 +91,13 @@ __all__ = [
 PY_FORK_TIMEOUT_S = int(os.environ.get("HPCAGENT_BENCH_PY_FORK_TIMEOUT_S", "600"))
 #: Kernels whose numpy reference is only valid at declared size, so the down-scale skips them: derived or coupled
 #: sizes (seissol's Nb, nfa_frontier's automaton, triangle_count's NE <= NV*(NV-1)/2), fixed operands (SuiteSparse
-#: matrices), data-dependent trip or step counts (solvers, integrators), or a level a config knob names.
+#: matrices), data-dependent trip or step counts (solvers, integrators), a level a config knob names, or a row bound
+#: the data must fit (examinimd's max_neighs).
 NO_SCALE = (
     "bdf_newton_krylov",
     "cloudsc_subsidence_forcing",
     "distribution_search",
+    "examinimd",
     "ilu0",
     "jfnk_bratu",
     "lanczos_reorth",

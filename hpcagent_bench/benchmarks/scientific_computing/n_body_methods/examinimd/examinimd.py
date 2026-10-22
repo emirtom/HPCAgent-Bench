@@ -137,7 +137,7 @@ def _neighbor_pairs(x, cutoff: float, n_local: int, xp: ModuleType = np):
                 cols_at.append(j[within])
     pair_row = xp.concatenate(rows_at)
     pair_col = xp.concatenate(cols_at)
-    ranked = xp.lexsort((pair_col, pair_row))
+    ranked = xp.lexsort(xp.stack((pair_col, pair_row)))
     return pair_row[ranked], pair_col[ranked]
 
 
