@@ -2270,7 +2270,8 @@ def test_a_minus_one_reshape_is_one_axis_so_a_gather_through_it_keeps_its_axis()
 def test_an_inlined_einsum_takes_the_result_dtype_of_all_its_operands() -> None:
     """vexx_k's ``np.einsum('abij,ab->aij', qr, vc_box)`` contracts a real table with a complex
     vector reached through a reshape. Its loop nest was allocated at the first operand's dtype, so
-    every complex product landed in a double and the generated C++ refused to compile."""
+    every complex product landed in a double and the generated C++ refused to compile. DaCe keeps the
+    einsum as a library call; the backends that inline it allocate at the result dtype."""
     from types import SimpleNamespace
 
     from hpcagent_bench.translators.numpyto_common.numpy_desugar import desugar_for_python_backend
@@ -2283,7 +2284,8 @@ def test_an_inlined_einsum_takes_the_result_dtype_of_all_its_operands() -> None:
         arrays=[SimpleNamespace(name=name, shape=shape, dtype=dtype) for name, (shape, dtype) in arrays.items()],
         scalars=[],
     )
-    program = desugar_for_python_backend(src, kir, backend="dace")
+    assert "np.einsum('abi,ab->ai', qr, vcb)" in desugar_for_python_backend(src, kir, backend="dace")
+    program = desugar_for_python_backend(src, kir, backend="numba")
     assert "np.einsum" not in program, program
     assert "vcb.dtype)" in program, program
     scope = {"np": np}
@@ -2298,11 +2300,11 @@ def test_an_inlined_einsum_takes_the_result_dtype_of_all_its_operands() -> None:
         "def k(qr, v, out):\n    vcb = np.fft.fft(v).reshape((2, 3))\n    out[:] = np.einsum('abi,ab->ai', qr, vcb)\n"
     )
     kir.arrays[1].dtype = "float64"
-    fft_program = desugar_for_python_backend(fft_src, kir, backend="dace")
+    fft_program = desugar_for_python_backend(fft_src, kir, backend="numba")
     assert "vcb.dtype)" in fft_program, fft_program
     # An operand of unknown kind may be the complex one, so a known real operand never decides.
     kir.arrays[1].dtype = None
-    unknown = desugar_for_python_backend(src, kir, backend="dace")
+    unknown = desugar_for_python_backend(src, kir, backend="numba")
     assert "qr.dtype)" in unknown, unknown
 
 

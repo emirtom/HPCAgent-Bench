@@ -360,6 +360,7 @@ def test_the_scan_flags_a_gnu_view_library_that_linked_libomp_through_a_libgomp_
             "-fopenmp",
             "-shared",
             "-fPIC",
+            "-Wl,--no-as-needed",  # Ubuntu's gcc defaults to --as-needed and would drop the symbol-less stub
             f"-L{rocm}",
             f"-Wl,-rpath,{rocm}",
             str(tmp_path / "p.c"),
