@@ -76,6 +76,7 @@ Nothing was timed.
 
 ## Your job
 
+The form only replaces the file you start from; nothing reads or rewrites your edits afterwards.
 Trust the verdicts and reason only about `unsure` loops. Spend your effort on what the form applies only
 in its basic form, and on restructuring: block sizes, fusing launches, staging through shared memory,
 coalescing, data layout. Keep every kernel race-free. Write your version to your own folder as the same
