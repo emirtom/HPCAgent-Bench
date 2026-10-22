@@ -545,11 +545,12 @@ REGISTRY_PROBE = r"""
 import json
 
 from hpcagent_bench import languages
+from hpcagent_bench.categories import Language
 
 
 declared = list(languages.load_libraries())
-offered = {lang: sorted(languages.available_libraries(lang, languages.submission_context(lang)))
-           for lang in languages.LANG_EXT if lang != 'python'}
+offered = {lang.text: sorted(languages.available_libraries(lang, languages.submission_context(lang)))
+           for lang in languages.LANG_EXT if lang is not Language.PYTHON}
 print('REGISTRY ' + json.dumps({'declared': sorted(declared), 'offered': offered}))
 """
 
