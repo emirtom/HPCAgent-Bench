@@ -635,6 +635,7 @@ ENV PATH=/opt/gcc/bin:/opt/view/bin:/opt/papi/bin:/opt/rocm/bin:${PATH} \
     OPENBLAS_ROOT=/opt/view \
     OPENBLAS_DIR=/opt/view \
     HPTT_ROOT=/usr/local \
+    LIBXSMM_ROOT=/usr/local \
     TBLIS_ROOT=/usr/local \
     OPENMPI_ROOT=/opt/openmpi \
     PAPI_ROCM_ROOT=/opt/rocm \
@@ -884,13 +885,17 @@ RUN set -eux; \
 # Comment here, not inside the RUN -- one between line continuations is passed to the shell and
 # comments out the rest.
 COPY containers/images/lib/build-hptt.sh /build-hptt.sh
+COPY containers/images/lib/build-libxsmm.sh /build-libxsmm.sh
 COPY containers/images/lib/build-tblis.sh /build-tblis.sh
 ARG TBLIS_REF=v1.3.0
 RUN set -eux; \
     sh /build-hptt.sh; \
+    sh /build-libxsmm.sh; \
     TBLIS_REF="${TBLIS_REF}" sh /build-tblis.sh; \
     ldconfig; \
     test -f /usr/local/include/hptt.h; \
+    test -f /usr/local/include/libxsmm/libxsmm.h; \
+    test -f /usr/local/lib/libxsmm.so; \
     test -f /usr/local/include/tblis/tblis.h; \
     { test -f /usr/local/lib/libtblis.so || test -f /usr/local/lib/libtblis.a; }
 

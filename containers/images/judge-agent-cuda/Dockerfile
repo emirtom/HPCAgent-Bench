@@ -532,6 +532,7 @@ ENV PATH=/opt/gcc/bin:/opt/view/bin:/opt/papi/bin:/usr/local/cuda/bin:${PATH} \
     OPENBLAS_ROOT=/opt/view \
     OPENBLAS_DIR=/opt/view \
     HPTT_ROOT=/usr/local \
+    LIBXSMM_ROOT=/usr/local \
     TBLIS_ROOT=/usr/local \
     OPENMPI_ROOT=/opt/openmpi \
     PAPI_CUDA_ROOT=/usr/local/cuda
@@ -702,6 +703,7 @@ RUN sh /omp_llvm_env.sh cuda && rm /omp_llvm_env.sh
 ARG TBLIS_REF=
 ARG SKA_SORT_REF=2c14d4bf7b667032ed28a481065f721385e33849
 COPY containers/images/lib/build-hptt.sh /build-hptt.sh
+COPY containers/images/lib/build-libxsmm.sh /build-libxsmm.sh
 COPY containers/images/lib/build-tblis.sh /build-tblis.sh
 RUN set -eux; \
     spack="${SPACK_ROOT}/bin/spack"; \
@@ -716,6 +718,7 @@ RUN set -eux; \
     ln -sfn "$("${spack}" location -i openmpi)" /opt/openmpi; \
     test -x /opt/openmpi/bin/mpicc; \
     CFLAGS="-march=${MARCH}" CXXFLAGS="-march=${MARCH}" sh /build-hptt.sh; \
+    sh /build-libxsmm.sh; \
     # No MARCH for tblis: its bundled BLIS builds every kernel family with that family's own -march
     # (SVE, AVX-512) and dispatches at run time; a later -march overrides those and breaks the build.
     TBLIS_REF="${TBLIS_REF}" sh /build-tblis.sh; \
@@ -726,6 +729,8 @@ RUN set -eux; \
     rm -rf /tmp/ska; \
     ldconfig; \
     test -f /usr/local/include/hptt.h; \
+    test -f /usr/local/include/libxsmm/libxsmm.h; \
+    test -f /usr/local/lib/libxsmm.so; \
     test -f /usr/local/include/tblis/tblis.h; \
     { test -f /usr/local/lib/libtblis.so || test -f /usr/local/lib/libtblis.a; }
 
