@@ -34,8 +34,10 @@ def emits(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[l
     """Count emits: each one writes a C reference stamped with the emit number."""
     calls: list[str] = []
 
-    def fake_emit(spec: object, kernel_py: pathlib.Path, out_dir: pathlib.Path, *, target: str, abi: bool) -> int:
-        del spec, kernel_py, abi  # the emit's inputs are the cache key's business, not this stand-in's
+    def fake_emit(
+        spec: object, kernel_py: pathlib.Path, out_dir: pathlib.Path, *, target: str, abi: bool, scop: bool
+    ) -> int:
+        del spec, kernel_py, abi, scop  # the emit's inputs are the cache key's business, not this stand-in's
         calls.append(target)
         (pathlib.Path(out_dir) / "s235_fp64.c").write_text(f"/* emit {len(calls)} */\n")
         return 0

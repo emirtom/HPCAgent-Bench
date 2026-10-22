@@ -27,6 +27,8 @@ class EmitRequest:
     fastmath: bool = False
     #: Strip comments and docstrings (the Python siblings, before a container handoff).
     sanitize: bool = False
+    #: C family only: also write the Pluto/PPCG scop inputs (a second parse and lowering without library calls).
+    scop: bool = True
 
 
 def with_precision(kir: KernelIR, precision: str) -> KernelIR:

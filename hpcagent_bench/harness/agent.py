@@ -218,7 +218,7 @@ def with_workspace_parameters(source: str, kernel: str, language: Language) -> s
             for line in stub.splitlines()
             if re.search(rf"::\s*({WORKSPACE_SIZE_NAME}\b|{WORKSPACE_NAME}\()", line)
         ]
-        header = re.search(rf"subroutine\s+{symbol}\s*\(([^)]*)\)[^\n]*\n", source, re.IGNORECASE)
+        header = re.search(rf"subroutine\s+{symbol}\s*\(([^)]*)\)(?:[^\n]*&[ \t]*\n)*[^\n]*\n", source, re.IGNORECASE)
         if header is None or WORKSPACE_NAME in header.group(1):
             return source
         lines = source[header.end() :].split("\n")
@@ -226,7 +226,7 @@ def with_workspace_parameters(source: str, kernel: str, language: Language) -> s
         indent = re.match(r"\s*", lines[body]).group(0)  # type: ignore[union-attr]  # \s* always matches
         lines[body:body] = [indent + line for line in declared]
         named = header.group(0).replace(
-            f"({header.group(1)})", f"({header.group(1)}, {WORKSPACE_NAME}, {WORKSPACE_SIZE_NAME})", 1
+            f"({header.group(1)})", f"({header.group(1)}, &\n    & {WORKSPACE_NAME}, {WORKSPACE_SIZE_NAME})", 1
         )
         return source[: header.start()] + named + "\n".join(lines)
     stub_parameters = re.search(rf"\b{symbol}\s*\(([^()]*)\)", stub)
@@ -268,7 +268,8 @@ def _reference_source(kernel: str, language: Language, prefer_committed: bool) -
             return with_workspace_parameters(cached.read_text(), kernel, language)
 
     with tempfile.TemporaryDirectory() as tmp:
-        rc = emit_kernel(spec, kernel_py, pathlib.Path(tmp), target=target, abi=True)
+        # The reference is the C/C++ (or Fortran) unit alone: the Pluto/PPCG scop inputs are the polyhedral columns'.
+        rc = emit_kernel(spec, kernel_py, pathlib.Path(tmp), target=target, abi=True, scop=False)
         hits = sorted(pathlib.Path(tmp).glob(glob))
         if rc != 0 or not hits:
             raise RuntimeError(f"emit failed for {kernel} ({language.text}); rc={rc}")

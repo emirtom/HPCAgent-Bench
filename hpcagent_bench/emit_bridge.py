@@ -475,10 +475,11 @@ def emit_kernel(
     config: str | None = None,
     precision: str = "",
     abi: bool = False,
+    scop: bool = True,
 ) -> int:
     """Emit ``spec``'s kernel to translators ``target`` in-process; 0, or 1 with the refusal on stderr.
 
-    The C target writes the whole C family (``.c``, ``.cpp``, Pluto input). Outputs are named
+    The C target writes the whole C family (``.c``, ``.cpp``, and with ``scop`` the Pluto/PPCG inputs). Outputs are named
     ``<short>[_<sparse>]_<fptype>`` with ``<short>`` = ``naming.short_for(kernel_py)`` (the reference's stem, not
     ``spec.short_name``): find them through that function. ``abi``: see :func:`bench_info_tempfile`."""
     from hpcagent_bench.translators.numpyto_common.targets import EmitRequest, emit  # noqa: PLC0415 -- heavy
@@ -491,6 +492,7 @@ def emit_kernel(
             bench_info=bi,
             config=resolved_config,
             precision=precision,
+            scop=scop,
         )
         try:
             emit(target, request)
