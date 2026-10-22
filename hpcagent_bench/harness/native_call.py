@@ -44,7 +44,7 @@ from hpcagent_bench.categories import Language
 from hpcagent_bench.dtypes import c_type, is_storage_only, storage_typedef
 from hpcagent_bench.frameworks.forked import RunResult, exception_header, run_forked
 from hpcagent_bench.fuzz import FuzzValue, safe_eval
-from hpcagent_bench.harness import precision_casts, timing
+from hpcagent_bench.harness import nested_blas, precision_casts, timing
 from hpcagent_bench.harness.judge_scheduler import judge_slots
 from hpcagent_bench.harness.precision_casts import CastPlan, HostCasts, Regroup, storage_view_dtype
 from hpcagent_bench.harness.task import setup_declared_host_only
@@ -1983,9 +1983,10 @@ def call_python(
             bound = {k: python_output_to_host(v, xp) for k, v in outputs.items()}
         return bound, rep.ns
 
-    timed_outputs, samples, extras = sampled_calls(
-        call_with, data, rep_data, reps, warmup, rep_timeout, after_first_rep, followups, func_name
-    )
+    with nested_blas.single_threaded_blas(pathlib.Path(py_path).read_text()):
+        timed_outputs, samples, extras = sampled_calls(
+            call_with, data, rep_data, reps, warmup, rep_timeout, after_first_rep, followups, func_name
+        )
     return timed_outputs, samples, extras, reps_seen
 
 

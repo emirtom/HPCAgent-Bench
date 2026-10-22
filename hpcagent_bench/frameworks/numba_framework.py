@@ -12,8 +12,15 @@ from typing import Any, Protocol, cast
 
 from hpcagent_bench import autogen, modules
 from hpcagent_bench.frameworks import Benchmark, Framework
-from hpcagent_bench.frameworks.framework import BenchData, CallPlan, KernelImpl, load_impl, load_rewritten_impl
-from hpcagent_bench.harness import disk_cache
+from hpcagent_bench.frameworks.framework import (
+    BenchData,
+    CallPlan,
+    KernelImpl,
+    KernelResult,
+    load_impl,
+    load_rewritten_impl,
+)
+from hpcagent_bench.harness import disk_cache, nested_blas
 
 __all__ = ["FASTMATH_FLAVOR", "IMPL_NAME", "NumbaDispatcher", "NumbaFramework", "fastmath_source"]
 
@@ -114,6 +121,21 @@ class NumbaFramework(Framework):
                 return plan
             dispatcher.compile(types)
         return plan
+
+    def measure(
+        self,
+        impl: KernelImpl,
+        runner: Callable[[], KernelResult],
+        repeat: int,
+        before_each: Callable[[], None] | None = None,
+        warmup: int | None = None,
+    ) -> dict[str, list[float] | None]:
+        """:meth:`Framework.measure`, with BLAS at one thread when the kernel calls it inside a ``prange``."""
+        from numba.core.dispatcher import Dispatcher  # noqa: PLC0415
+
+        func = cast("NumbaDispatcher", impl).py_func if isinstance(impl, Dispatcher) else impl
+        with nested_blas.single_threaded_blas(inspect.getsource(sys.modules[func.__module__])):
+            return super().measure(impl, runner, repeat, before_each, warmup)
 
     def implementations(self, bench: Benchmark) -> Sequence[tuple[Callable, str]]:
         """The ``<module>_numba.py`` kernel (generated when missing); none when it cannot be generated, and
