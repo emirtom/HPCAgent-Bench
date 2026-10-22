@@ -11,7 +11,7 @@ BASE=temperature TAG=temperature3 EXPERIMENT=temperature3 RECORD_STUDY=temperatu
     LANGUAGES=c TEMPERATURES="default 0 1.5" SUBMIT=1 ../hpcagent_bench/cluster/submit.sh $J
 ```
 
-Figure (speedup, token cost and solved runs per model, kernel and temperature; [plotting](../../docs/plotting.md#kernel-runs-figure-designed-repeats-conditions-stacked)):
+Figure (speedup, token cost and solved runs per model, kernel and temperature; [plotting](../../docs/plotting.md#kernel-runs)):
 
 ```bash
 python -m hpcagent_bench.export.dataset --study temperature3 --out data/temperature3.db

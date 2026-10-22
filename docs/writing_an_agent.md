@@ -131,7 +131,7 @@ Each answer, refusals included, is a pydantic model in
 [judge_wire.py](../hpcagent_bench/harness/judge_wire.py); a refusal is a `JudgeError` (`error`, and `cause` where a
 client acts on it).
 
-How the two grades are timed is in [measurement_statistics.md](measurement_statistics.md#timing-protocol). Full
+How the two grades are timed is in [scoring.md](scoring.md#11-routes-and-protocols). Full
 wire contract: [agent_service_contract.md](../hpcagent_bench/docs/agent_service_contract.md).
 
 ## Submission
