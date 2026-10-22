@@ -86,6 +86,15 @@ PPCG_CHECKED_HOST = textwrap.dedent("""\
     """)
 
 
+def test_a_device_resident_entry_waits_for_its_kernels_before_it_returns() -> None:
+    """The dropped device-to-host copy was the entry's only wait: without the synchronize, fdtd_2d returned while its
+    kernels ran, the caller read stale outputs and freed buffers under them (hipErrorIllegalAddress)."""
+    rewritten = device_resident_host(PPCG_CHECKED_HOST, "kernel")
+    body = rewritten.rstrip()
+    assert body.endswith(ppcg_transform.DEVICE_SYNC + "}"), rewritten
+    assert rewritten.count("hipDeviceSynchronize") == 1, rewritten
+
+
 def test_device_resident_host_strips_mirror_calls_inside_ppcgs_check_macro() -> None:
     """Left in place, ``hipMalloc(&dev_A)`` overwrites the alias with a fresh buffer: the kernel
     reads garbage and writes into memory that is then freed."""

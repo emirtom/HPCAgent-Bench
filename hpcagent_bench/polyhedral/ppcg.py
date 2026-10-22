@@ -22,6 +22,7 @@ from hpcagent_bench.translators.numpyto_c.emit import NPB_HD_GUARD
 __all__ = [
     "CONJ_CALL_RE",
     "CXX_COMPAT_PROLOGUE",
+    "DEVICE_SYNC",
     "DEV_DECL_RE",
     "FRAMEWORK",
     "HIPIFY",
@@ -35,6 +36,7 @@ __all__ = [
     "device_helpers",
     "device_resident_host",
     "drop_const_params",
+    "entry_body_end",
     "entry_params",
     "entry_symbol",
     "exe_under_prefix",
@@ -210,12 +212,36 @@ def entry_params(host: str, entry: str) -> list[str]:
     return []
 
 
+def entry_body_end(host: str, entry: str) -> int:
+    """The offset of the ``}`` closing ``entry``'s definition in ``host``; ``-1`` if absent."""
+    for match in re.finditer(rf"\b{re.escape(entry)}\s*\(", host):
+        depth, end = 1, match.end()
+        while depth and end < len(host):
+            depth += {"(": 1, ")": -1}.get(host[end], 0)
+            end += 1
+        opening = re.match(r"\s*\{", host[end:])
+        if depth or not opening:
+            continue
+        depth, end = 1, end + opening.end()
+        while depth and end < len(host):
+            depth += {"{": 1, "}": -1}.get(host[end], 0)
+            end += 1
+        return end - 1 if not depth else -1
+    return -1
+
+
+#: Ends a device-resident entry: its stripped copy back to the host was the only wait on its kernels.
+DEVICE_SYNC = "  (void)hipDeviceSynchronize();\n"
+
+
 def device_resident_host(host: str, entry: str) -> str:
     """ppcg's hipified host code using ``entry``'s array PARAMETERS as device pointers instead of device mirrors.
 
     The harness puts array arguments on the device before the timed call, so each parameter mirror's declaration
     becomes an alias ``T *dev_X = (T *) X;`` (well-typed for a VLA parameter) and its malloc/copy/free calls are
-    dropped. Mirrors of LOCAL arrays are host buffers and stay. Raises when no parameter mirror is found; call it only
+    dropped. Mirrors of LOCAL arrays are host buffers and stay. The entry then ends with a device synchronize: the
+    dropped device-to-host copy was its only wait, and without it the caller read and freed the outputs while kernels
+    still ran (fdtd_2d: wrong values, hipErrorIllegalAddress). Raises when no parameter mirror is found; call it only
     on an :func:`offloaded` transform."""
     params = set(entry_params(host, entry))
     aliased: list[str] = []
@@ -233,7 +259,10 @@ def device_resident_host(host: str, entry: str) -> str:
     for name in aliased:
         # An EMPTY STATEMENT, not a deletion: ppcg guards a copy with a brace-less ``if``.
         rewritten = re.sub(HIP_MIRROR_CALL.format(mirror=f"dev_{name}"), r"\1;", rewritten, flags=re.MULTILINE)
-    return rewritten
+    end = entry_body_end(rewritten, entry)
+    if end < 0:
+        raise ValueError(f"no definition of {entry!r} found to end with a device synchronize")
+    return rewritten[:end] + DEVICE_SYNC + rewritten[end:]
 
 
 #: Prepended to ppcg's host output: nvcc/hipcc compile the C prelude as C++, where ``restrict`` is no keyword (not
