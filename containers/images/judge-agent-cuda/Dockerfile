@@ -1067,8 +1067,9 @@ COPY containers/images/lib/openmp_gate.py containers/images/lib/omp_contexts.sh 
 # The OpenMP catalog (hpcagent_bench/openmp/catalog.py) is measured here, once per image, into /opt/omp/catalog.json
 # where every job reads it. hpcagent_bench and the agent package are bind-mounted for this step only: no layer
 # carries them.
-# The scan sees /opt/ofi-sdk's libfabric, as a job sees the node's: MPICH needs its FABRIC_1.9 symbols, and without
-# them every MPI-linked library (petsc, slepc) is recorded unlinkable while a job links it (verify omp-catalog).
+# The scan sees /opt/ofi-sdk's libfabric and the CUDA stub drivers, as a job sees the node's: MPICH needs FABRIC_1.9
+# and petsc needs libnvidia-ml.so.1, and without them petsc and slepc are recorded unlinkable while a job links them
+# (verify omp-catalog). The stubs live under their runtime sonames in /tmp/drv-stubs for this step only.
 RUN --mount=type=bind,source=hpcagent_bench,target=/hb-src/hpcagent_bench \
     --mount=type=bind,source=agent/hpcagent_agent,target=/hb-src/hpcagent_agent \
     mkdir -p /opt/hpcagent-bench-agent/hpcagent_agent && touch /opt/hpcagent-bench-agent/hpcagent_agent/__init__.py \
@@ -1108,9 +1109,12 @@ RUN --mount=type=bind,source=hpcagent_bench,target=/hb-src/hpcagent_bench \
     python3 /tmp/one-openmp/openmp_gate.py context --context gnu --wheels --torch; \
     python3 /tmp/one-openmp/openmp_gate.py context --context llvm --blas-in-context; \
     python3 /tmp/one-openmp/openmp_gate.py context --context nvhpc --blas-in-context; \
-    cd /hb-src && LD_LIBRARY_PATH="/opt/ofi-sdk/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" PYTHONDONTWRITEBYTECODE=1 \
+    mkdir -p /tmp/drv-stubs; \
+    ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /tmp/drv-stubs/libcuda.so.1; \
+    ln -sf /usr/local/cuda/lib64/stubs/libnvidia-ml.so /tmp/drv-stubs/libnvidia-ml.so.1; \
+    cd /hb-src && LD_LIBRARY_PATH="/opt/ofi-sdk/lib:/tmp/drv-stubs${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" PYTHONDONTWRITEBYTECODE=1 \
       python3 -m hpcagent_bench.openmp.catalog --write /opt/omp/catalog.json --check' \
-    && rm -rf /opt/launch-gate /tmp/one-openmp /opt/hpcagent-bench-agent/hpcagent_agent \
+    && rm -rf /opt/launch-gate /tmp/one-openmp /tmp/drv-stubs /opt/hpcagent-bench-agent/hpcagent_agent \
     && { mountpoint -q /uv-cache || rm -rf /uv-cache; }
 
 # Drop the build-time mirror rewrite from the SHIPPED image.
