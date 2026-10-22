@@ -169,6 +169,7 @@ def test_only_so_many_agents_start_at_once(monkeypatch: pytest.MonkeyPatch, tmp_
             with lock:
                 spawned.append(1)
             self.returncode = None
+            self.pid = 0
             release.wait(timeout=30)
             stdout.write(init_line("connected"))
             stdout.flush()

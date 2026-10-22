@@ -7,6 +7,8 @@ import ast
 import contextlib
 from collections.abc import Iterator
 
+__all__ = ["BLAS_CALLS", "blas_inside_prange", "called_names", "calls_blas", "is_prange_loop", "single_threaded_blas"]
+
 #: Calls (by attribute or bare name) that dispatch to BLAS or LAPACK.
 BLAS_CALLS = frozenset({"dot", "vdot", "matmul", "inner", "tensordot", "solve", "inv", "lstsq", "cholesky", "qr"})
 
