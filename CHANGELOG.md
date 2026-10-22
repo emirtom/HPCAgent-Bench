@@ -55,7 +55,7 @@ stays free; ExternCall on GPU data passes device pointers in stream order.
   to a correct answer at preset S in C, C++ and Fortran.
 - **Budget the prompt states: output tokens, no time limit.** `AGENT_MAX_OUTPUT_TOKENS` (20M generated tokens per
   attempt, rc 125 past it) is the only budget an agent is told, with "there is no time limit".
-  `AGENT_TIMEOUT_SECONDS` (20 h; 21 h for kimi, the one key a model layer may raise) and `AGENT_MAX_TOKENS` (120M
+  `AGENT_TIMEOUT_SECONDS` (20 h, every model) and `AGENT_MAX_TOKENS` (120M
   consumed) are unstated backstops.
 - **One prepare job per wave renders what the setups read** (`prepare --renders`, `submit.sh`, `PREPARE=0` skips
   it): numba, the C/C++/Fortran references, DaCe's base SDFG after simplify (`dace-sdfg`, on request) and the CPF

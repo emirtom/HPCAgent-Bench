@@ -107,7 +107,7 @@ plus half again.
 | --- | --- | --- | --- |
 | oss120b | 40 (`layers/replicas.env`) | 72000 | 1 |
 | qwen38 | 40 (`layers/replicas.env`) | 72000 | 1 |
-| kimi27sglang | 20 (`layers/model-kimi27sglang.env`) | 75600 | 2 |
+| kimi27sglang | 20 (`layers/model-kimi27sglang.env`) | 72000 | 2 |
 
 Agents stop at `AGENT_TIMEOUT_SECONDS`, not at the job's wall clock. One inference server does not
 carry 120 qwen38 agents (decode slows until the setup records almost nothing); split a long list with
