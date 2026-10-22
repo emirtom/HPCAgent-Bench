@@ -249,7 +249,7 @@ setup_renders() {
 # submit_prepare <renders...> -- one prepare job over the tag rendering <renders> (plus RENDERS) into the caches the
 # setups' judges read, in the judge image the first staged setup names; sets PREPARE_JOB_ID (empty on a dry run).
 submit_prepare() {
-    local renders judge cache jid resolved edf
+    local renders judge cache jid resolved edf tasks cpus
     local -a options args
     PREPARE_JOB_ID=""
     # shellcheck disable=SC2086  # RENDERS is a word list
@@ -266,6 +266,9 @@ submit_prepare() {
     mapfile -t options <<<"${resolved}"
     [[ " ${options[*]} " != *" --account=root "* ]] \
         || { echo "submit_prepare: account root is not a project account: pass --account or set SBATCH_ACCOUNT" >&2; return 2; }
+    # One step per task (prepare.sbatch's run_job_shards): the system's helper-job layout, not the experiment job's.
+    tasks=$(job_options --print ntasks_per_node) cpus=$(job_options --print cpus_per_task) || return 2
+    options+=(${tasks:+"--ntasks-per-node=${tasks}"} ${cpus:+"--cpus-per-task=${cpus}"})
     # shellcheck source=../../helpers/scripts/site_env.sh
     [[ -n "${EDF_PATH:-}" ]] || . "${OPT}/helpers/scripts/site_env.sh"
     edf="${EDF_PATH%%:*}/${judge}.toml"
