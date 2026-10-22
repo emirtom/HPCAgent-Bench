@@ -51,14 +51,22 @@ def parse(text: str, source: str = "") -> Subagent:
         raise ValueError(f"subagent {source}: no --- frontmatter")
     end = next(index for index, line in enumerate(lines[1:], 1) if line.strip() == FENCE)
     fields: dict[str, str] = {}
+    key = ""
     for line in lines[1:end]:
+        item = line.strip()
+        if item.startswith("- ") and key:  # a YAML block list continues the key above it
+            fields[key] = f"{fields[key]},{item[2:]}" if fields[key] else item[2:]
+            continue
         key, colon, value = line.partition(":")
-        if colon:
-            fields[key.strip()] = value.strip().strip("\"'")
-    missing = [key for key in ("name", "description") if not fields.get(key)]
+        key = key.strip() if colon else ""
+        if key:
+            fields[key] = value.strip().strip("\"'")
+    missing = [name for name in ("name", "description") if not fields.get(name)]
     if missing:
         raise ValueError(f"subagent {source}: frontmatter lacks {missing}")
-    tools = tuple(name.strip() for name in fields["tools"].split(",") if name.strip()) if "tools" in fields else None
+    tools = None
+    if "tools" in fields:  # "Read, Grep", "[Read, Grep]" or a block list
+        tools = tuple(name.strip().strip("\"'") for name in fields["tools"].strip("[]").split(",") if name.strip())
     return Subagent(fields["name"], fields["description"], tools, "\n".join(lines[end + 1 :]).strip())
 
 

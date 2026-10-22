@@ -43,6 +43,15 @@ def test_a_subagent_file_reads_its_name_description_tools_and_prompt() -> None:
     assert subagents.parse(HELPER.replace("tools: bash\n", "")).tools is None
 
 
+@pytest.mark.parametrize(
+    "tools",
+    ["tools: bash, score", "tools: [bash, score]", 'tools: ["bash", "score"]', "tools:\n  - bash\n  - score"],
+)
+def test_a_tools_line_reads_the_same_in_every_yaml_list_spelling(tools: str) -> None:
+    """A plugin may write ``tools`` comma-separated, as a flow list or as a block list; each names the same tools."""
+    assert subagents.parse(HELPER.replace("tools: bash", tools)).tools == ("bash", "score")
+
+
 def test_a_subagent_file_without_a_description_is_refused() -> None:
     with pytest.raises(ValueError, match="description"):
         subagents.parse("---\nname: x\n---\nbody")
@@ -182,6 +191,8 @@ if __name__ == "__main__":
     import tempfile
 
     test_a_subagent_file_reads_its_name_description_tools_and_prompt()
+    for spelling in ("tools: bash, score", "tools: [bash, score]", 'tools: ["bash", "score"]', "tools:\n  - bash\n  - score"):
+        test_a_tools_line_reads_the_same_in_every_yaml_list_spelling(spelling)
     test_a_subagent_file_without_a_description_is_refused()
     test_a_subagent_gets_its_own_tools_and_never_the_task_tool()
     with tempfile.TemporaryDirectory() as scratch:
