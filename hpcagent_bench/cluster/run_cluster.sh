@@ -1356,6 +1356,7 @@ fi
 # /opt/gpu-arch (built before the stamp) only WARNS, so experiments on live images keep launching.
 check_gpu_arch() {
     [[ "${CONTAINER_RUNTIME}" == ce ]] || return 0
+    [[ -e /dev/kfd ]] || return 0  # an AMD check (rocminfo, gfx archs): an NVIDIA node has no /dev/kfd
     [[ "${DRY_RUN:-0}" != 1 ]] || return 0
     local checker="${HPCAGENT_BENCH_REPO}/containers/images/gpu_arch_check.sh"
     # A service setup runs no inference EDF, so there is no inference image to check the arch of.
