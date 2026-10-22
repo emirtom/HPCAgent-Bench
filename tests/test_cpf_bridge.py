@@ -139,6 +139,11 @@ def test_a_prerender_caches_the_form_and_a_rerun_renders_nothing(spec: BenchSpec
     abi = [a.name for a in native.args] + ["workspace", "workspace_size"]
     assert declared_parameters(form.source.read_text(), form.entry) == abi
     assert json.loads(form.binding.read_text()) == native.document().model_dump(exclude_unset=True)
+    # The form keeps the SDFG its code was generated from, named for the entry the code defines.
+    assert form.sdfg is not None, form
+    import dace  # deferred like every dace use here: only integration tests load it
+
+    assert dace.SDFG.from_file(str(form.sdfg)).name == form.entry
 
 
 def prerender_kwargs() -> dict[str, object]:

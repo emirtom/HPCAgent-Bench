@@ -83,8 +83,8 @@ HINTS_ENV = "HPCAGENT_BENCH_CPF_HINTS"
 
 
 class Role(Coded):
-    """The files of one entry: a form's source, on the gpu target its device unit, and its binding; a canonical
-    entry's SDFG."""
+    """The files of one entry: a form's source, on the gpu target its device unit, its binding and the SDFG it was
+    generated from; a canonical entry's SDFG."""
 
     SOURCE = enum.auto()
     DEVICE = enum.auto()
@@ -315,7 +315,8 @@ def served_dialect(target: Target, language: str) -> str:
 
 
 class Form(NamedTuple):
-    """One form's files in the cache: the source, the binding, and on the gpu target the device unit."""
+    """One form's files in the cache: the source, the binding, on the gpu target the device unit, and the SDFG the
+    units were generated from."""
 
     #: Its key, which a grade of it records.
     key: str
@@ -330,6 +331,8 @@ class Form(NamedTuple):
     libraries: tuple[str, ...] = ()
     #: The scratch the form carves its transients from (``workspace_bytes``); ``"0"`` when it needs none.
     workspace_bytes: str = "0"
+    #: The ``.sdfgz`` the units were generated from; None for a form rendered before forms kept it.
+    sdfg: pathlib.Path | None = None
 
 
 def form(cache_root: pathlib.Path, key: str) -> Form:
@@ -341,6 +344,7 @@ def form(cache_root: pathlib.Path, key: str) -> Form:
         raise CacheMiss(f"form {key} of {entry.kernel} has no source (verdict {entry.verdict.text!r}): {entry.error}")
     where = entry_path(cache_root, key)
     device = entry.artefacts.get(Role.DEVICE)
+    sdfg = entry.artefacts.get(Role.SDFG)
     return Form(
         key,
         entry.entry,
@@ -349,6 +353,7 @@ def form(cache_root: pathlib.Path, key: str) -> Form:
         where / device.name if device else None,
         tuple(entry.libraries),
         entry.workspace_bytes,
+        where / sdfg.name if sdfg else None,
     )
 
 

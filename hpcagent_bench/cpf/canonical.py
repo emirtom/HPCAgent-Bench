@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 import pydantic
 
-from hpcagent_bench import modules, paths, phase_clock
+from hpcagent_bench import framework_cache, modules, paths, phase_clock
 from hpcagent_bench.cpf import cache as cpf_cache
 from hpcagent_bench.cache_files import file_sha256
 from hpcagent_bench.cpf.cache import RenderVerdict, Role, Target
@@ -45,7 +45,6 @@ __all__ = [
     "parse_kernel",
     "parse_program",
     "produce",
-    "producer_digest",
     "program_name",
     "resolve_program",
 ]
@@ -158,11 +157,6 @@ def dace_environment() -> dict[str, str]:
     return {k: v for k, v in sorted(os.environ.items()) if k.startswith("DACE_") and k not in DACE_PATH_VARIABLES}
 
 
-def producer_digest() -> str:
-    """Hash of this module, the code between the generated program and the canonical SDFG."""
-    return file_sha256(pathlib.Path(__file__))
-
-
 def small_symbols(spec: BenchSpec) -> frozenset[str]:
     """The size symbols the manifest declares small for every configuration (``public.scales``)."""
     return spec.public.small_symbols() if spec.public is not None else frozenset()
@@ -195,7 +189,7 @@ def canonical_key(
         "precision": fptype_tag(precision),
         "target": target.text,
         "dace_env": dace_environment(),
-        "producer": producer_digest(),
+        "producer": framework_cache.bench_tree_fingerprint(),
     }
     if small:
         options["small"] = sorted(small)

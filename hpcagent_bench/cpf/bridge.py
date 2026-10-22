@@ -8,12 +8,12 @@ import argparse
 import ast
 import contextlib
 import functools
-import hashlib
 import os
 import pathlib
 import re
 import subprocess
 import sys
+import tempfile
 import time
 import traceback
 from collections.abc import Iterator, Mapping, Sequence
@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import pydantic
 
-from hpcagent_bench import config, languages, paths, phase_clock
+from hpcagent_bench import config, framework_cache, languages, paths, phase_clock
 from hpcagent_bench.cpf import cache as cpf_cache
 from hpcagent_bench.cpf import canonical as cpf_canonical
 from hpcagent_bench.categories import Language, Track
@@ -64,7 +64,6 @@ __all__ = [
     "RenderedForm",
     "abi_parameters",
     "bind_pinned_config",
-    "bridge_digest",
     "child_lines",
     "clean_form",
     "copies_whole_argument",
@@ -513,6 +512,8 @@ class RenderedForm(NamedTuple):
     libraries: tuple[str, ...] = ()
     #: Host-unit scratch (CPF's ``Rendering.workspace_bytes``) over the binding's scalar names; ``"0"``: none.
     workspace_bytes: str = "0"
+    #: The SDFG the units were generated from (after the render-time edits), compressed (``.sdfgz``).
+    sdfg: bytes = b""
 
     @property
     def binding_name(self) -> str:
@@ -522,10 +523,21 @@ class RenderedForm(NamedTuple):
     def device_name(self) -> str:
         return f"{pathlib.Path(self.name).stem}.{LANGUAGE_EXT[DEVICE_LANGUAGE]}"
 
-    def artefacts(self) -> tuple[tuple[Role, str, str], ...]:
-        """``(role, file name, text)`` of every file this form is: the source, the device unit on gpu, the binding."""
-        device = ((Role.DEVICE, self.device_name, self.device_code),) if self.device_code else ()
-        return ((Role.SOURCE, self.name, self.code), *device, (Role.BINDING, self.binding_name, self.binding))
+    @property
+    def sdfg_name(self) -> str:
+        return f"{pathlib.Path(self.name).stem}.sdfgz"
+
+    def artefacts(self) -> tuple[tuple[Role, str, bytes], ...]:
+        """``(role, file name, bytes)`` of every file this form is: the source, the device unit on gpu, the binding,
+        and the SDFG the units were generated from."""
+        device = ((Role.DEVICE, self.device_name, self.device_code.encode()),) if self.device_code else ()
+        sdfg = ((Role.SDFG, self.sdfg_name, self.sdfg),) if self.sdfg else ()
+        return (
+            (Role.SOURCE, self.name, self.code.encode()),
+            *device,
+            (Role.BINDING, self.binding_name, self.binding.encode()),
+            *sdfg,
+        )
 
 
 def render_canonical(
@@ -589,7 +601,16 @@ def render_canonical(
         link=rendering.link,
         libraries=tuple(rendering.libraries),
         workspace_bytes=binding_workspace_bytes(rendering.workspace_bytes, native, renames),
+        sdfg=compressed_sdfg(sdfg),
     )
+
+
+def compressed_sdfg(sdfg: "SDFG") -> bytes:
+    """``sdfg`` as the bytes of its ``.sdfgz`` file."""
+    with tempfile.TemporaryDirectory(prefix=".cpf-sdfg.") as staging:
+        stored = pathlib.Path(staging) / "form.sdfgz"
+        sdfg.save(str(stored), compress=True)
+        return stored.read_bytes()
 
 
 #: dace's integer helpers as the judge's evaluator (:func:`hpcagent_bench.fuzz.safe_eval`) spells them: ``ipow`` is
@@ -751,8 +772,8 @@ def render_sdfg(
     rec.entry = form.entry
     out_dir.mkdir(parents=True, exist_ok=True)
     paths_by_role: dict[Role, str] = {}
-    for role, name, text in form.artefacts():
-        (out_dir / name).write_text(text)
+    for role, name, data in form.artefacts():
+        (out_dir / name).write_bytes(data)
         paths_by_role[role] = str(out_dir / name)
     rec.source, rec.binding = paths_by_role[Role.SOURCE], paths_by_role[Role.BINDING]
     if Role.DEVICE in paths_by_role:
@@ -762,16 +783,6 @@ def render_sdfg(
     rec.workspace_bytes = form.workspace_bytes
     rec.libraries = list(form.libraries)
     return rec
-
-
-@functools.lru_cache(maxsize=1, typed=True)
-def bridge_digest() -> str:
-    """Hash of the hpcagent-bench code between the SDFG and the text: this module and the ABI contract."""
-    from hpcagent_bench.support.bindings import contract
-
-    return hashlib.sha256(
-        pathlib.Path(__file__).read_bytes() + pathlib.Path(contract.__file__).read_bytes()
-    ).hexdigest()
 
 
 def render_options(
@@ -787,7 +798,7 @@ def render_options(
         "precision": fptype_tag(precision),
         "target": target.text,
         "hints": hints.text,
-        "bridge": bridge_digest(),
+        "bridge": framework_cache.bench_tree_fingerprint(),
         "dace_env": cpf_canonical.dace_environment(),
         "entry": native.symbol,
         "signature": list(abi_parameters(native, dialect)),
@@ -897,7 +908,7 @@ def prerender_sdfg(
                         "libraries": list(form.libraries),
                         "workspace_bytes": form.workspace_bytes,
                     }
-                    files = [(role, name, text.encode()) for role, name, text in form.artefacts()]
+                    files = list(form.artefacts())
                     cpf_cache.publish(cache_root, key, form_fields, files)
                     results[language] = RenderOutcome(key=key, verdict=RenderVerdict.OK, cached=False)
                     continue
