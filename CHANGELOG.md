@@ -47,10 +47,32 @@ stays free; ExternCall on GPU data passes device pointers in stream order.
   sparse x sparse (coo sized by its largest stored index), checked per layout against scipy.
 - **The OpenMP catalog ships in the image** (`/opt/omp/catalog.json`, measured at image build); jobs no longer scan
   it at start, and `verify_image.py` fails an image whose catalog differs from a fresh scan.
+- **Agents start from the judge's own translation.** Every single-node setup stages `<module>_reference.<ext>`, the
+  NumpyToX CPU emit the judge compiles as its baseline: in the setup's language for C, C++ and Fortran, in C for any
+  other (HIP, CUDA, Triton, ...). It takes `signature.json`'s symbol and parameters in order, including the reserved
+  `workspace`/`workspace_size` pair (the emit used to omit it and linked only by the calling convention's grace).
+  Hand-written ports are never staged. CI holds every level-3 scientific-computing and every scicomp40 translation
+  to a correct answer at preset S in C, C++ and Fortran.
+- **Budget the prompt states: output tokens, no time limit.** `AGENT_MAX_OUTPUT_TOKENS` (20M generated tokens per
+  attempt, rc 125 past it) is the only budget an agent is told, with "there is no time limit".
+  `AGENT_TIMEOUT_SECONDS` (20 h; 21 h for kimi, the one key a model layer may raise) and `AGENT_MAX_TOKENS` (120M
+  consumed) are unstated backstops.
+- **One prepare job per wave renders what the setups read** (`prepare --renders`, `submit.sh`, `PREPARE=0` skips
+  it): numba, the C/C++/Fortran references, DaCe's base SDFG after simplify (`dace-sdfg`, on request) and the CPF
+  forms (`cpf-cpu`, `cpf-gpu`); judges start warm. Every render is keyed by the HPCAgent-Bench commit (and an
+  SDFG/CPF render by the DaCe commit) instead of a hash of selected source files.
+- **A CPF form keeps the SDFG its code was generated from** (`<form>.sdfgz` beside the source, `cpf.cache.Form.sdfg`).
+- **`BenchSpec` is built from the validated manifest** (`manifest_schema.Manifest` plus a `KernelSite`), with typed
+  parse helpers in place of key sets; every corpus spec is unchanged.
+- **Best-of denominator for the compiler columns** races every reference column (numba, `cc_autopar`), not GCC
+  alone.
 - README "For students" is "Getting started".
 - Top-level modules are grouped into `cpf/`, `polyhedral/`, `openmp/`, `export/` and `results/`.
 
 ### Fixed
+- The driver relaunches an attempt the API dropped mid-stream ("response stopped arriving") or a reply that outgrew
+  the output reserve, instead of ending the episode.
+- An agent's launch venv no longer carries relayout's corpus (hand-written ports of benchmark kernels).
 - Per-kernel figures drew no row for a combined-packet setup (`...-cpf-src+cpf-tool`): the setup pattern refused
   the `+`; the label names both packets.
 - `tsvc_2_s319` declares its accumulation length (`chain_length`), which the CPF determinism check needs.

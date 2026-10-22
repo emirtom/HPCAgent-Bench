@@ -709,7 +709,8 @@ class DaceFramework(Framework):
 
     def sdfg_fingerprint(self, bench: Benchmark) -> str:
         """Freshness key for a kernel's cached base SDFG: the numpy reference, the generated
-        ``<module>_dace.py``, the precision and the DaCe tree (:func:`framework_cache.dace_tree_fingerprint`)."""
+        ``<module>_dace.py``, the precision, the DaCe tree (:func:`framework_cache.dace_tree_fingerprint`) and the
+        HPCAgent-Bench tree (:func:`framework_cache.bench_tree_fingerprint`)."""
         from hpcagent_bench import cache_files, framework_cache, paths
 
         kdir = paths.BENCHMARKS / bench.spec.relative_path
@@ -721,6 +722,7 @@ class DaceFramework(Framework):
                 parts.append(p.read_bytes())
         parts.append(str(self.datatype).encode())
         parts.append(framework_cache.dace_tree_fingerprint().encode())
+        parts.append(framework_cache.bench_tree_fingerprint().encode())
         return cache_files.sha256_hex(b"\x00".join(parts))
 
     def build_with_cache(  # pyright: ignore[reportIncompatibleMethodOverride]  # narrows the hook to the SDFG DaCe caches
@@ -805,6 +807,18 @@ class DaceFramework(Framework):
         (:meth:`build_with_cache`), the parse every optimize of it starts from."""
         program = self.import_kernel(bench)
         self.build_with_cache(bench, self.device_tag(), lambda: program.to_sdfg(simplify=False))
+
+    def prepare_simplified(self, bench: Benchmark) -> None:
+        """Cache the kernel's base SDFG after ``simplify`` for this device, beside the parsed one (the prepare job's
+        ``dace-sdfg`` render): ``.cache/<module>_<device>_simplified.sdfgz``."""
+        program = self.import_kernel(bench)
+        base = self.build_with_cache(bench, self.device_tag(), lambda: program.to_sdfg(simplify=False))
+
+        def simplified() -> dace.SDFG:
+            base.simplify(validate=False)
+            return base
+
+        self.build_with_cache(bench, f"{self.device_tag()}_simplified", simplified)
 
     # Optimize phase: build the flavor's pipeline, compile it, verify it
 

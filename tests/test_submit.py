@@ -73,6 +73,7 @@ KNOBS = frozenset(
             "EXPERIMENT",
         ],
         *["RECORD_STUDY", "STAMP", "REPEAT", "AGENTS_PER_NODE", "AGENT_NODES", "JUDGE_NODES"],
+        *["PREPARE", "RENDERS", "EDF_PATH"],
         *["BUDGET_SCALE", "TOKEN_SCALE", "TIME_SCALE", "DEADLINE", "EXTRA_ENV_KV", "SETUP_SUFFIX", "SUBMIT"],
         *[
             "DEPEND_ON",
@@ -127,7 +128,8 @@ def submit(root: pathlib.Path, *flags: str, **knobs: str | None) -> subprocess.C
         SCRATCH=str(root / "scratch"),
         STAMP="20260926",
     )
-    env.update({"MODELS": "qwen38", "TAG": "llr40", "EXPERIMENT": "wave", **JOB_ENV, **knobs})
+    # PREPARE=0 unless a test names it: the wave prepare job has a test of its own (test_submit_waves.py).
+    env.update({"MODELS": "qwen38", "TAG": "llr40", "EXPERIMENT": "wave", "PREPARE": "0", **JOB_ENV, **knobs})
     env = {key: value for key, value in env.items() if value is not None}
     return subprocess.run(
         ["bash", str(root / "hpcagent_bench" / "cluster" / "submit.sh"), *flags],
