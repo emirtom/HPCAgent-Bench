@@ -8,9 +8,11 @@ These tools grade, profile and check it:
 Your working directory is your own folder, and the judge reads the files you send it from there. It
 starts with your kernel's reference material: the NumPy reference (`*_numpy.py`), `signature.json` (the
 exact C ABI and the symbol the judge links against; take parameter types and their order from it, not
-from the reference) and, when you deliver C, C++ or Fortran, `*_reference.<ext>`: the judge's own translation
-of the NumPy reference into your language, the code its baseline is compiled from. It builds with the judge's
-line and gives the right answer, so `score` accepts it unchanged; it is not optimized. `/tmp` and `/dev/shm`
+from the reference) and `*_reference.<ext>`: a correct, unoptimized CPU implementation of the kernel, the
+judge's own translation of the NumPy reference and the code its CPU baseline is compiled from. It is in your
+language when you deliver C, C++ or Fortran, and in C for any other language; its symbol and argument order are
+the ones `signature.json` gives. In C, C++ or Fortran it builds with the judge's line and gives the right answer,
+so `score` accepts it unchanged. In any other language it is the CPU code to port from. `/tmp` and `/dev/shm`
 are private to you and the judge cannot see them.
 
 Your file tools are `Read` and `Edit`. Create a file from the shell (`cat > f <<'EOF'`), then `Read` it
@@ -81,9 +83,9 @@ the route names the tool):
 ## End to end
 
 1. Read the reference material in your folder, starting with `signature.json`.
-2. Write the kernel to the file "Sending code" names, in your folder. With a `*_reference.<ext>` there, copy it
-   to that file, `score` it unchanged and `submit` it: a correct version is recorded before you change
-   anything. Then optimize your copy.
+2. Write the kernel to the file "Sending code" names, in your folder. When `*_reference.<ext>` is in your
+   language, copy it to that file, `score` it unchanged and `submit` it: a correct version is recorded before
+   you change anything. Then optimize your copy. Otherwise port it to your language first.
 {{MODE:example}}
 {{MODE:closing}}
 
