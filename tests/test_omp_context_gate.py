@@ -187,8 +187,17 @@ def test_a_library_naming_libomp_in_dt_needed_is_flagged_for_the_gnu_context(tmp
     subprocess.run([compiler, "-shared", "-fPIC", str(source), "-o", str(tmp_path / "libomp.so")], check=True)
     subprocess.run([compiler, "-shared", "-fPIC", str(source), "-o", str(tmp_path / "libclean.so")], check=True)
     subprocess.run(
-        [compiler, "-shared", "-fPIC", str(source), "-o", str(tmp_path / "libuser.so"), "-Wl,--no-as-needed",
-         f"-L{tmp_path}", "-lomp"],
+        [
+            compiler,
+            "-shared",
+            "-fPIC",
+            str(source),
+            "-o",
+            str(tmp_path / "libuser.so"),
+            "-Wl,--no-as-needed",
+            f"-L{tmp_path}",
+            "-lomp",
+        ],
         check=True,
     )
     assert gate.needed_foreign_to_gnu(tmp_path / "libuser.so") == ["libomp.so"]
