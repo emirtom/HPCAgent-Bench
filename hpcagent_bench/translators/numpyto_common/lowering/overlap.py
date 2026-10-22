@@ -16,17 +16,12 @@ from collections.abc import Sequence
 from hpcagent_bench.translators.numpyto_common.ast_build import name_, range_for, store_, walk_nodes
 from hpcagent_bench.translators.numpyto_common.lib_nodes.dims import constant_difference
 from hpcagent_bench.translators.numpyto_common.lowering.indexing import binop
+from hpcagent_bench.translators.numpyto_common.parallelism import index_exprs
 
-__all__ = ["OVERLAP_TEMP_PREFIX", "index_list", "reads_a_stored_cell", "staged_through_temp", "temp_extents"]
+__all__ = ["OVERLAP_TEMP_PREFIX", "reads_a_stored_cell", "staged_through_temp", "temp_extents"]
 
 #: Prefix of the temps :func:`staged_through_temp` evaluates an overlapping right-hand side into.
 OVERLAP_TEMP_PREFIX = "__sfov"
-
-
-def index_list(sub: ast.Subscript) -> list[ast.expr]:
-    """The per-axis entries of ``sub``'s index."""
-    sl = sub.slice
-    return list(sl.elts) if isinstance(sl, ast.Tuple) else [sl]
 
 
 def mentions(expr: ast.expr, names: set[str]) -> bool:
@@ -73,7 +68,7 @@ def reads_a_stored_cell(
             return True
         if not (isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == array):
             continue
-        read_index = index_list(node)
+        read_index = index_exprs(node)
         if len(read_index) != len(write_index):
             return True
         if any(isinstance(d, ast.Slice) for d in read_index):

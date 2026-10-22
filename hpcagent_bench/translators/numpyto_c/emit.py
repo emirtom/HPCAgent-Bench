@@ -42,6 +42,7 @@ from hpcagent_bench.translators.numpyto_common.lib_nodes import (
 )
 from hpcagent_bench.translators.numpyto_common.limits import FIXPOINT_ROUNDS
 from hpcagent_bench.translators.numpyto_common.lowering import helper_returns_int, integer_valued_locals, walk_complex
+from hpcagent_bench.translators.numpyto_common.lowering.shape_reads import negative_literal_offset
 from hpcagent_bench.translators.numpyto_common.ordered import OrderedSet
 from hpcagent_bench.translators.numpyto_common.statement_desugar import binding_names
 from hpcagent_bench.translators.numpyto_common.subscripts import is_full_slice
@@ -134,7 +135,6 @@ __all__ = [
     "literal_stack_bytes",
     "md_trailing_",
     "names_bound_by",
-    "negative_const_k",
     "operand_end",
     "operand_start",
     "param_init_stmts",
@@ -1117,11 +1117,11 @@ class CBodyEmitter(BaseEmitter):
             if len(elts) != len(shape) or any(is_newaxis_or_ellipsis(e) for e in elts):
                 return
             for axis, e in enumerate(elts):
-                k = negative_const_k(e)
+                k = negative_literal_offset(e)
                 if k is not None:
                     elts[axis] = self.dim_minus_k(shape[axis], k, e)
         else:
-            k = negative_const_k(sl)
+            k = negative_literal_offset(sl)
             if k is not None:  # a bare index indexes axis 0 (of any rank)
                 node.slice = self.dim_minus_k(shape[0], k, sl)
 
@@ -1824,12 +1824,6 @@ class CBodyEmitter(BaseEmitter):
 
 
 # Top-level emitters
-
-
-def negative_const_k(node: ast.expr) -> int | None:
-    """If node is a negative integer index constant, return its magnitude k > 0 (the index is -k), else None."""
-    k = const_int(node)
-    return -k if k is not None and k < 0 else None
 
 
 def is_newaxis_or_ellipsis(e: ast.expr) -> bool:

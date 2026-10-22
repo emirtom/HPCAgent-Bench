@@ -24,13 +24,13 @@ from hpcagent_bench.translators.numpyto_common.lowering.indexing import (
 )
 from hpcagent_bench.translators.numpyto_common.lowering.overlap import (
     OVERLAP_TEMP_PREFIX,
-    index_list,
     reads_a_stored_cell,
     staged_through_temp,
     temp_extents,
 )
 from hpcagent_bench.translators.numpyto_common.lowering.shape_harvest import is_scalar_helper_call
 from hpcagent_bench.translators.numpyto_common.lowering.shape_reads import is_newaxis, negative_literal_offset
+from hpcagent_bench.translators.numpyto_common.parallelism import index_exprs
 from hpcagent_bench.translators.numpyto_common.lowering.slice_scalarize import SliceToScalarRewriter
 from hpcagent_bench.translators.numpyto_common.lowering.views import refuse_scalarising_a_contraction
 from hpcagent_bench.translators.numpyto_common.subscripts import has_slice_subscript
@@ -212,7 +212,7 @@ class SliceFusion(ast.NodeTransformer):
         # nest has already stored (``a[1:] = a[:-1] + 1``, ``x[:] = x[::-1]``, ``x[:] = x[perm]``)
         # goes through a temp the RHS is evaluated into first.
         nest = [(ivar.id, ranges[axis][0], ranges[axis][1]) for axis, ivar in enumerate(iter_vars) if ivar is not None]
-        if reads_a_stored_cell(lhs_name, index_list(new_lhs), new_rhs, nest):
+        if reads_a_stored_cell(lhs_name, index_exprs(new_lhs), new_rhs, nest):
             temp = f"{OVERLAP_TEMP_PREFIX}{len(self.overlap_temps) + 1}"
             self.overlap_temps[temp] = (temp_extents(nest), lhs_name)
             return [*hoister.staged, *staged_through_temp(new_lhs, new_rhs, aug_op, nest, temp)]
