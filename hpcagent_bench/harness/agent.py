@@ -64,6 +64,7 @@ __all__ = [
     "clear_reference_cache",
     "committed_reference_override",
     "emit_reference_source",
+    "generated_reference_source",
     "emitted_bench_info",
     "generated_cache_root",
     "http_chat_json",
@@ -247,6 +248,11 @@ def emit_reference_source(kernel: str, language: Language) -> str:
     """The reference source for ``(kernel, language)``: NumpyToX output, or the committed override when
     ``references.prefer_committed`` is on. Memoized; ``KERNELS.refresh()`` drops it."""
     return _reference_source(kernel, language, prefer_committed_reference())
+
+
+def generated_reference_source(kernel: str, language: Language) -> str:
+    """The NumpyToX emit of ``kernel`` in ``language``, never a committed override: what an agent starts from."""
+    return _reference_source(kernel, language, False)
 
 
 def clear_reference_cache() -> None:

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """stage_signature.py writes the C-ABI ``signature.json`` every setup's agent reads, triton setups included."""
 
+import os
 import pathlib
 import sys
 import tempfile
@@ -11,8 +12,10 @@ import pydantic
 import pytest
 
 import hpcagent_bench
+from hpcagent_bench import languages
 from hpcagent_bench.categories import Language
 from hpcagent_bench.cluster.stage_signature import StagedSignature
+from hpcagent_bench.harness.agent import generated_reference_source
 from tests.fresh_module import fresh
 
 KERNEL = "loop_level_reasoning/scan_affine_decay/scan_affine_decay"
@@ -71,6 +74,29 @@ def test_a_distributed_setup_stages_the_kernel_mpi_abi_the_judge_links(
     assert ("MPI_Fint comm" in staged.signature) is (distributed == "true"), staged.signature
 
 
+@pytest.mark.parametrize("language", ["c", "cpp", "fortran"])
+def test_the_reference_staged_is_the_judges_own_auto_translation(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, language: str
+) -> None:
+    """The agent starts from the NumpyToX emit the judge compiles as the baseline, read-only, in its own language."""
+    dest = tmp_path / language
+    argv = ["stage_signature.py", KERNEL, str(dest), "--language", language, "--reference", "k_reference"]
+    monkeypatch.setattr(sys, "argv", argv)
+    load_stager().main()
+    lang = Language.validate(language)
+    staged = dest / f"k_reference.{languages.LANG_EXT[lang]}"
+    assert staged.read_text() == generated_reference_source(KERNEL, lang)
+    assert not os.access(staged, os.W_OK) or os.geteuid() == 0
+
+
+def test_a_triton_setup_is_staged_no_reference(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    dest = tmp_path / "triton"
+    argv = ["stage_signature.py", KERNEL, str(dest), "--language", "triton", "--reference", "k_reference"]
+    monkeypatch.setattr(sys, "argv", argv)
+    load_stager().main()
+    assert sorted(path.name for path in dest.iterdir()) == ["signature.json"]
+
+
 def test_a_signature_file_missing_its_symbol_or_with_an_extra_key_is_refused() -> None:
     """The file names exactly the symbol, the language and the declaration."""
     with pytest.raises(pydantic.ValidationError, match="symbol"):
@@ -91,4 +117,11 @@ if __name__ == "__main__":
             test_a_distributed_setup_stages_the_kernel_mpi_abi_the_judge_links(
                 pathlib.Path(tempfile.mkdtemp()), patch, distributed
             )
+    for language in ("c", "cpp", "fortran"):
+        with pytest.MonkeyPatch.context() as patch:
+            test_the_reference_staged_is_the_judges_own_auto_translation(
+                pathlib.Path(tempfile.mkdtemp()), patch, language
+            )
+    with pytest.MonkeyPatch.context() as patch:
+        test_a_triton_setup_is_staged_no_reference(pathlib.Path(tempfile.mkdtemp()), patch)
     test_a_signature_file_missing_its_symbol_or_with_an_extra_key_is_refused()

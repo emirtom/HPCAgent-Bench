@@ -128,13 +128,9 @@ def test_an_agent_cannot_write_its_tools_or_its_launch_directory(tmp_path: pathl
 
 
 def test_the_generated_reference_cache_reaches_the_judge_and_not_the_agent(tmp_path: pathlib.Path) -> None:
-    """emit_reference_source lowers the reference into the target language.
-
-    materialize_shared.sh:13 is explicit that those lowerings reach no agent -- copyable material
-    is the numpy reference plus any hand-written ``*_reference.*``. The judge is the role that calls the
-    emitter to grade, so the cache has to reach it; mounting the same path into the agent hands
-    over a correct implementation of the kernel the agent is being graded on writing.
-    """
+    """The cache holds every kernel's lowering in every language; an agent is staged its own kernel's
+    translation once (materialize_shared.sh). The judge calls the emitter to grade, so the cache has to
+    reach it, and only it."""
     agent = render(tmp_path, "agent-node")
     judge = render(tmp_path, "judge-node")
     cache = str(tmp_path / "repo" / ".cache" / "generated")
