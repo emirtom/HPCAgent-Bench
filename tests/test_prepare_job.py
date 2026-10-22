@@ -79,8 +79,9 @@ def test_the_dace_step_caches_the_parsed_base_sdfg() -> None:
     assert cached.is_file()
 
 
-def test_the_cpf_step_needs_a_view(tmp_path: pathlib.Path) -> None:
-    with pytest.raises(SystemExit, match="--cpf-view"):
+def test_the_cpf_step_needs_a_cache(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HPCAGENT_BENCH_CPF_CACHE", raising=False)
+    with pytest.raises(SystemExit, match="--cpf-cache"):
         prepare.main(["--problems", str(problems_file(tmp_path, [KERNEL])), "--language", "c", "--steps", "cpf"])
 
 
@@ -100,14 +101,18 @@ def test_the_cpf_step_renders_then_grades_the_same_share_in_the_setup_language(
     monkeypatch.setattr(cpf_verify, "main", lambda argv: calls.append(("verify", list(argv))) or 1)
     kernels = tmp_path / "kernels.txt"
     kernels.write_text("k1\n# a comment\nk2\n", encoding="utf-8")
-    argv = ["--kernels-file", str(kernels), "--language", language, "--steps", "cpf", "--cpf-view", "V"]
+    argv = ["--kernels-file", str(kernels), "--language", language, "--steps", "cpf"]
     assert prepare.main([*argv, "--cpf-cache", "C", "--rank", "1", "--ranks", "4"]) == 0
     assert [step for step, _ in calls] == ["render", "verify"][: 1 + graded]
     for _, words in calls:
         assert words[words.index("--kernels") + 1] == "k1,k2"
         assert words[words.index("--rank") : words.index("--rank") + 4] == ["--rank", "1", "--ranks", "4"]
     render = calls[0][1]
-    assert render[render.index("--target") + 1] == target
+    assert (render[0], render[render.index("--target") + 1], render[render.index("--cache") + 1]) == (
+        "render",
+        target,
+        "C",
+    )
 
 
 if __name__ == "__main__":
@@ -118,6 +123,5 @@ if __name__ == "__main__":
 
     test_the_tasks_split_the_tag_without_overlap(tmp())
     test_an_unknown_step_is_refused(tmp())
-    test_the_cpf_step_needs_a_view(tmp())
     test_the_dace_step_caches_the_parsed_base_sdfg()
     print("ok (monkeypatched tests run under pytest)")

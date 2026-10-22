@@ -74,30 +74,29 @@ is stamped with are the checkout's (`--repo`, default `$HPCAGENT_BENCH_REPO`).
 ## `prepare`
 
     hpcagent-bench job prepare (--problems FILE | --tag TAG | --kernels-file FILE) --language LANG
-        [--steps sources,frameworks,grade,torch,cpf] [--frameworks a,b] [--cpf-view DIR] [--cpf-cache DIR]
+        [--steps sources,frameworks,grade,torch,cpf] [--frameworks a,b] [--cpf] [--cpf-cache DIR]
 
 - **Input.** The arguments of `hpcagent_bench.harness.prepare`: the kernels (a setup's problems file, a tag, or one
   name per line) and the language they are graded in.
 - **Steps.** Per kernel: `sources` (the generated reference), `frameworks` (each `--frameworks` sibling and DaCe's
   parsed base SDFG), `grade` (the reference graded as `/score` grades it: golden outputs and baseline timings into
   the judge's disk store), `torch` (every timed cell of an ML kernel's `torch.compile` denominator). Then `cpf` over
-  the task's share: the canonical parallel forms rendered into `--cpf-view` (`hpcagent_bench.cpf.prerender`; the cache
-  is `--cpf-cache`, default `$HPCAGENT_BENCH_CPF_CACHE`), the target following `--language` (hip and cuda render the
-  device form), then each form graded once in `--language` as `/submit` would (`hpcagent_bench.cpf.verify`). The
-  default is every per-kernel step, plus `cpf` when `--cpf-view` is given.
+  the task's share: the canonical parallel forms rendered into the cache (`hpcagent_bench.cpf.prerender`; `--cpf-cache`,
+  default `$HPCAGENT_BENCH_CPF_CACHE`), the target following `--language` (hip and cuda render the device form), then
+  each form graded once in `--language` as `/submit` would (`hpcagent_bench.cpf.verify`). The default is every
+  per-kernel step, plus `cpf` with `--cpf`.
 - **Rank distribution.** Task `r` of `n` takes `kernels[r::n]` (`--rank`/`--ranks` are set from the environment);
   `cpf` splits the same way, so a task verifies only what it rendered.
-- **Output.** No file of its own: the caches each step's consumer reads, and for `cpf` the forms in the cache, the
-  view pointing at them and each form's verdict in the view, which `cpf_cache check --verified` reads before a
-  cpf-src setup is submitted. A failing step is reported per kernel and the job goes on; a form that does not verify
+- **Output.** No file of its own: the caches each step's consumer reads, and for `cpf` the forms in the cache with
+  each form's verdict beside it, which `cpf.prerender check --verified` reads before a cpf-src setup is submitted. A failing step is reported per kernel and the job goes on; a form that does not verify
   fails nothing but its verdict.
 - **Where it runs.** With `JUDGE_EDF` set, `prepare.sbatch` runs every task in the judge image with the checkout
   mounted (a render and a grade need its compilers and BLAS); without it, on `$HPCAGENT_BENCH_PYTHON`.
 
-The CPF view of a tag, for the cpf-tool and cpf-src setups on CPU (C drop-ins graded):
+The CPF forms of a tag, for the cpf-tool and cpf-src setups on CPU (C drop-ins graded):
 
     JUDGE_EDF=~/.edf/<judge>.toml hpcagent-bench job submit --nodes 2 hpcagent_bench/cluster/prepare.sbatch \
-        --tag llr40 --language c --steps cpf --cpf-view $HPCAGENT_BENCH_CPF_PRERENDER_DIR/views/llr40-cpu
+        --tag llr40 --language c --steps cpf
 
 ## `baseline`
 

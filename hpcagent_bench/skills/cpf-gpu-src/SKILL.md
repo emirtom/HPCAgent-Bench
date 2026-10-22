@@ -8,7 +8,7 @@ packet:
   # hand-written reference (``CPF_DROPIN_DIR``). ``cpf-src`` names it on a GPU setup.
   name: "Canonical Parallel Form as Source, GPU"
   env:
-    CPF_DROPIN_DIR: "${CPF_VIEW}"
+    CPF_DROPIN_DIR: "${HPCAGENT_BENCH_CPF_CACHE}"
   short: "CPF src GPU"
 ---
 

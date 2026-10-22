@@ -112,7 +112,7 @@ def test_a_canonicalize_ended_by_a_signal_is_not_cached(
     key = cpf_canonical.canonical_key(impl, "commit", "fp64", Target.CPU)
     with pytest.raises(SystemExit):
         cpf_canonical.canonical_sdfg(FakeSpec("k"), impl, key, cache, "fp64", Target.CPU)
-    assert cpf_cache.canonical_entry(cache, key) is None
+    assert cpf_cache.read_entry(cache, key) is None
 
 
 @dace.program

@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import pydantic
 
 from hpcagent_bench import config, languages, paths, phase_clock
+from hpcagent_bench.cpf import cache as cpf_cache
 from hpcagent_bench.cpf import canonical as cpf_canonical
 from hpcagent_bench.categories import Language, Track
 from hpcagent_bench.cpf.cache import DEFAULT_HINTS, LANGUAGE_EXT, HintDetail, RenderVerdict, Role, Target
@@ -54,6 +55,7 @@ __all__ = [
     "GPU_CODEGEN",
     "RENDER_TIMEOUT_KEY",
     "CanonicalOutcome",
+    "FormKeys",
     "ChildRun",
     "PythonIntegerForm",
     "RenderOutcome",
@@ -72,6 +74,7 @@ __all__ = [
     "drop_returned_arguments",
     "exact_abi_signature",
     "force_abi_symbols",
+    "form_keys",
     "generated_renames",
     "gpu_codegen_pinned",
     "main",
@@ -798,29 +801,26 @@ def dace_root() -> pathlib.Path:
     return pathlib.Path(dace.__file__).resolve().parents[1]
 
 
-def prerender_sdfg(
+class FormKeys(NamedTuple):
+    """The keys one kernel's forms are cached under: its canonical entry's, and per language ``(key, options)``."""
+
+    canonical: str
+    forms: dict[str, tuple[str, dict[str, object]]]
+
+
+def form_keys(
     spec: BenchSpec,
-    numpy_py: pathlib.Path,
-    cache_root: pathlib.Path,
     languages: Sequence[str],
     precision: str,
     target: Target,
-    dace_commit: str,
-    expected_root: pathlib.Path,
     hints: HintDetail,
-) -> RenderRecord:
-    """Render every language of one kernel whose key is not already a hit, into the cache.
-
-    Keys are computed and printed before any parse or render, so an all-hit kernel is never parsed and a killed child
-    still names what it was rendering."""
-    from hpcagent_bench.cpf import cache as cpf_cache
-
-    if dace_root() != expected_root.resolve():
-        raise RuntimeError(f"dace imports from {dace_root()}, but its commit was read in {expected_root}")
-    base = RenderRecord(kernel=spec.short_name, precision=fptype_tag(precision), target=target)
+    dace_commit: str,
+) -> "FormKeys | cpf_canonical.RenderFailure":
+    """Every key a render of ``spec`` publishes under, computed without dace: from the generated program, the dace
+    commit and the render options; the ``noemit`` verdict when the program cannot be generated."""
     impl = cpf_canonical.emit_program(spec)
     if isinstance(impl, cpf_canonical.RenderFailure):
-        return RenderRecord.model_validate({**base.model_dump(exclude_unset=True), **impl._asdict()})
+        return impl
     canonical = cpf_canonical.canonical_key(
         impl,
         dace_commit,
@@ -829,45 +829,80 @@ def prerender_sdfg(
         cpf_canonical.small_symbols(spec),
         cpf_canonical.nonnegative_symbols(spec),
     )
-    canonical_rec = CanonicalOutcome(key=canonical)
-    plan: dict[str, tuple[str, dict[str, object]]] = {}
+    forms = {}
     for language in languages:
         options = render_options(spec, language, precision, target, hints)
-        plan[language] = (cpf_cache.cache_key(canonical, dace_commit, options), options)
-    print(RenderPlan(plan={language: key for language, (key, _) in plan.items()}).model_dump_json(), flush=True)
+        forms[language] = (cpf_cache.cache_key("form", canonical, dace_commit, options), options)
+    return FormKeys(canonical, forms)
 
+
+def prerender_sdfg(
+    spec: BenchSpec,
+    cache_root: pathlib.Path,
+    languages: Sequence[str],
+    precision: str,
+    target: Target,
+    dace_commit: str,
+    expected_root: pathlib.Path,
+    hints: HintDetail,
+) -> RenderRecord:
+    """Render every language of one kernel whose key is not already an entry, into the cache; a failure is filed
+    as an entry too, so it is not rendered again.
+
+    Keys are computed and printed before any parse or render, so an all-hit kernel is never parsed and a killed child
+    still names what it was rendering."""
+    if dace_root() != expected_root.resolve():
+        raise RuntimeError(f"dace imports from {dace_root()}, but its commit was read in {expected_root}")
+    base = RenderRecord(kernel=spec.short_name, precision=fptype_tag(precision), target=target)
+    keys = form_keys(spec, languages, precision, target, hints, dace_commit)
+    if isinstance(keys, cpf_canonical.RenderFailure):
+        return RenderRecord.model_validate({**base.model_dump(exclude_unset=True), **keys._asdict()})
+    print(RenderPlan(plan={language: key for language, (key, _) in keys.forms.items()}).model_dump_json(), flush=True)
+    canonical_rec = CanonicalOutcome(key=keys.canonical)
+    short = short_for(paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_numpy.py")
+    fields = {"kernel": spec.short_name, "precision": fptype_tag(precision), "target": target}
     results: dict[str, RenderOutcome] = {}
     todo: list[str] = []
-    for language, (key, _) in plan.items():
-        if cpf_cache.is_hit(cache_root, key):
-            results[language] = RenderOutcome(key=key, verdict=RenderVerdict.OK, cached=True)
-        else:
+    for language, (key, _) in keys.forms.items():
+        entry = cpf_cache.read_entry(cache_root, key)
+        if entry is None:
             todo.append(language)
-    if todo:
-        sdfg, cached = cpf_canonical.canonical_sdfg(spec, impl, canonical, cache_root, precision, target)
-        canonical_rec.cached = cached
-        if isinstance(sdfg, cpf_canonical.RenderFailure):
-            for language in todo:
-                results[language] = RenderOutcome(key=plan[language][0], verdict=sdfg.verdict, error=sdfg.error)
         else:
-            for language in todo:
-                key, options = plan[language]
+            results[language] = RenderOutcome(key=key, verdict=entry.verdict, cached=True, error=entry.error)
+    if todo:
+        impl = cpf_canonical.emit_program(spec)
+        sdfg, cached = (
+            (impl, False)
+            if isinstance(impl, cpf_canonical.RenderFailure)
+            else cpf_canonical.canonical_sdfg(spec, impl, keys.canonical, cache_root, precision, target)
+        )
+        canonical_rec.cached = cached
+        for language in todo:
+            key, options = keys.forms[language]
+            if isinstance(sdfg, cpf_canonical.RenderFailure):
+                failed = sdfg
+            else:
                 try:
                     with phase_clock.phase(phase_clock.Phase.CODEGEN):
-                        form = render_canonical(spec, short_for(numpy_py), sdfg, language, precision, target, hints)
+                        form = render_canonical(spec, short, sdfg, language, precision, target, hints)
                 except Exception as exc:  # noqa: BLE001 -- a refusal of one language must not lose the others
                     failed = failure(exc)
-                    results[language] = RenderOutcome(key=key, verdict=failed.verdict, error=failed.error)
+                else:
+                    inputs = {"canonical": keys.canonical, "dace_commit": dace_commit, "options": options}
+                    form_fields = {
+                        **fields,
+                        "verdict": RenderVerdict.OK,
+                        "inputs": inputs,
+                        "entry": form.entry,
+                        "libraries": list(form.libraries),
+                        "workspace_bytes": form.workspace_bytes,
+                    }
+                    files = [(role, name, text.encode()) for role, name, text in form.artefacts()]
+                    cpf_cache.publish(cache_root, key, form_fields, files)
+                    results[language] = RenderOutcome(key=key, verdict=RenderVerdict.OK, cached=False)
                     continue
-                manifest = {
-                    "inputs": {"canonical": canonical, "dace_commit": dace_commit, "options": options},
-                    "kernel": spec.short_name,
-                    "entry": form.entry,
-                    "libraries": list(form.libraries),
-                    "workspace_bytes": form.workspace_bytes,
-                }
-                cpf_cache.publish(cache_root, key, manifest, form.artefacts())
-                results[language] = RenderOutcome(key=key, verdict=RenderVerdict.OK, cached=False)
+            cpf_cache.publish(cache_root, key, {**fields, "verdict": failed.verdict, "error": failed.error})
+            results[language] = RenderOutcome(key=key, verdict=failed.verdict, error=failed.error)
     return base.model_copy(update={"canonical": canonical_rec, "results": results})
 
 
@@ -1044,7 +1079,6 @@ def main(argv: list[str] | None = None) -> int:
             if args.cache is not None:
                 rec = prerender_sdfg(
                     spec,
-                    numpy_py,
                     pathlib.Path(args.cache),
                     languages,
                     args.precision,

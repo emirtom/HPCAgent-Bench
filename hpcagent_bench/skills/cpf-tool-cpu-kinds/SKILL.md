@@ -10,7 +10,7 @@ packet:
   name: "Canonical Parallel Form Tool, CPU, Kinds Only"
   tools: [canonical_parallel_form]
   env:
-    HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR: "${CPF_VIEW}"
+    HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR: "${HPCAGENT_BENCH_CPF_CACHE}"
     HPCAGENT_BENCH_CPF_HINTS: "kinds"
   short: "CPF tool CPU kinds"
 ---

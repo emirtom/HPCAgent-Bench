@@ -8,7 +8,7 @@ packet:
   # names it on a GPU setup.
   name: "Canonical Parallel Form as Source, GPU, Kinds Only"
   env:
-    CPF_DROPIN_DIR: "${CPF_VIEW}"
+    CPF_DROPIN_DIR: "${HPCAGENT_BENCH_CPF_CACHE}"
     HPCAGENT_BENCH_CPF_HINTS: "kinds"
   short: "CPF src GPU kinds"
 ---

@@ -19,7 +19,7 @@ import pydantic
 from hpcagent_bench import modules, paths, phase_clock
 from hpcagent_bench.cpf import cache as cpf_cache
 from hpcagent_bench.cache_files import file_sha256
-from hpcagent_bench.cpf.cache import RenderVerdict, Target
+from hpcagent_bench.cpf.cache import RenderVerdict, Role, Target
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import binding_from_spec
 from hpcagent_bench.translators.numpyto_common.naming import fptype_tag
@@ -201,7 +201,7 @@ def canonical_key(
         options["small"] = sorted(small)
     if nonnegative:
         options["nonnegative"] = sorted(nonnegative)
-    return cpf_cache.canonical_key(file_sha256(program), commit, options)
+    return cpf_cache.cache_key("canonical", file_sha256(program), commit, options)
 
 
 def emit_program(spec: BenchSpec) -> pathlib.Path | RenderFailure:
@@ -302,7 +302,7 @@ def produce(
 ) -> None:
     """Parse and canonicalize ``impl`` and publish the SDFG, or the ``Exception`` it raised, under ``key`` (a
     timeout or kill is not published, so it is retried)."""
-    manifest: dict[str, object] = {
+    fields: dict[str, object] = {
         "kernel": spec.short_name,
         "program": impl.name,
         "target": target,
@@ -312,23 +312,18 @@ def produce(
     try:
         parsed = parse_program(spec, impl, precision)
         if isinstance(parsed, RenderFailure):
-            cpf_cache.publish_canonical(cache_root, key, {**manifest, **parsed._asdict()}, None)
+            cpf_cache.publish(cache_root, key, {**fields, **parsed._asdict()})
             return
         canonicalize_for(parsed, target, small_symbols(spec), nonnegative_symbols(spec))
     except Exception as exc:  # noqa: BLE001 -- a raised error is a verdict worth remembering
-        cpf_cache.publish_canonical(cache_root, key, {**manifest, **failure(exc)._asdict()}, None)
+        cpf_cache.publish(cache_root, key, {**fields, **failure(exc)._asdict()})
         return
-    manifest["seconds"] = time.perf_counter() - started
-    cache_root.mkdir(parents=True, exist_ok=True)
-    staging = pathlib.Path(tempfile.mkdtemp(prefix=f".{key}.", dir=cache_root))
-    try:
-        stored = staging / cpf_cache.CANONICAL_SDFG_NAME
+    fields["seconds"] = time.perf_counter() - started
+    with tempfile.TemporaryDirectory(prefix=f".{key}.") as staging:
+        stored = pathlib.Path(staging) / cpf_cache.CANONICAL_SDFG_NAME
         parsed.save(str(stored), compress=True)
-        cpf_cache.publish_canonical(cache_root, key, {**manifest, "verdict": RenderVerdict.OK}, stored)
-    finally:
-        for leftover in staging.glob("*"):
-            leftover.unlink()
-        staging.rmdir()
+        files = [(Role.SDFG, cpf_cache.CANONICAL_SDFG_NAME, stored.read_bytes())]
+        cpf_cache.publish(cache_root, key, {**fields, "verdict": RenderVerdict.OK}, files)
 
 
 def canonical_sdfg(
@@ -338,17 +333,16 @@ def canonical_sdfg(
     already there; a cached failure comes back as its verdict."""
     from dace import SDFG
 
-    entry = cpf_cache.canonical_entry(cache_root, key)
+    entry = cpf_cache.read_entry(cache_root, key)
     cached = entry is not None
     if entry is None:
         produce(spec, impl, key, cache_root, precision, target)
-        entry = cpf_cache.canonical_entry(cache_root, key)
+        entry = cpf_cache.read_entry(cache_root, key)
     if entry is None:
         raise RuntimeError(f"canonical entry {key} was not published")
-    manifest, stored = entry
-    if stored is None:
-        return RenderFailure(manifest.verdict, manifest.error), cached
+    if entry.verdict is not RenderVerdict.OK:
+        return RenderFailure(entry.verdict, entry.error), cached
     # A prerendered canonicalize still counts as this run's work.
     if cached:
-        phase_clock.credit(manifest.seconds, phase_clock.Phase.TRANSFORM)
-    return SDFG.from_file(str(stored)), cached
+        phase_clock.credit(entry.seconds, phase_clock.Phase.TRANSFORM)
+    return SDFG.from_file(str(cpf_cache.entry_path(cache_root, key) / entry.artefacts[Role.SDFG].name)), cached

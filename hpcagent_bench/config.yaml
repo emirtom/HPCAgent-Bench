@@ -71,7 +71,7 @@ service:
                            #   XL+fuzz (spec.resolve_preset). Size preset of judge grades.
   datatype: float64        # float32 | float64 | fp16 | bf16 | fp8_e4m3 | fp8_e5m2 (precision.DATATYPE_CHOICES).
                            #   Precision of judge grades; ml.datatype applies on the machine_learning track.
-  canonical_parallel_form_dir: ""  # path. Canonical-parallel-form view the /cpf route serves; "" = the route
+  canonical_parallel_form_dir: ""  # path. CPF cache the /cpf route serves from and renders into; "" = the route
                            #   answers unavailable and the prompt omits the tool.
   warm_problems: ""        # path. Problems file whose cells the judge compiles at start; "" = no warm-up.
   warm_language: c         # str. Language of the warm-up builds.
@@ -517,8 +517,8 @@ runtime:
   # child runs in the image default context.
   omp_context_root: /opt/omp
   # path. Catalog of the OpenMP runtimes each catalog library maps per context (hpcagent_bench/openmp/catalog.py),
-  # written at job start into the run directory by `python3 -m hpcagent_bench.openmp.catalog --write PATH`.
-  # "" = <omp_context_root>/catalog.json. Env: HPCAGENT_BENCH_RUNTIME_OMP_CATALOG.
+  # written once per image at build by `python3 -m hpcagent_bench.openmp.catalog --write PATH`.
+  # "" = <omp_context_root>/catalog.json (where the image build writes it). Env: HPCAGENT_BENCH_RUNTIME_OMP_CATALOG.
   omp_catalog: ""
 
 # Native build (hpcagent_bench/languages.py).

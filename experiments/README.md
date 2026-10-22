@@ -83,11 +83,10 @@ its own folder (writable), the experiment-wide files read-only, and the skill pa
 
 **Preparation.** `run_cluster.sh` runs `prepare_job.sh` first, inside the allocation, from a copy in
 `${RUN_DIR}`. It stages material and fills the generated-source cache (`.cache/generated`). A CPF form is a drop-in
-whose signature is the C ABI's. A cpf-tool setup's view need not be rendered in advance: the judge renders a kernel
-the view lacks on its first request into `${HPCAGENT_BENCH_CPF_CACHE}` and every later request reads it; the prepare
-job's `cpf` step is an optional warm-up of the same cache. The step lists what the judge will render and refuses only
-a view pinned to another target, cache or dace commit, where no render can land. A cpf-src view (`CPF_DROPIN_DIR`)
-is rendered and verified before the setup (`hpcagent-bench job prepare ... --steps cpf`): the agent starts from it.
+whose signature is the C ABI's. A cpf-tool setup's forms need not be rendered in advance: the judge renders a kernel
+the cache lacks on its first request into `${HPCAGENT_BENCH_CPF_CACHE}` and every later request reads it; the prepare
+job's `cpf` step is an optional warm-up of the same cache. A cpf-src setup's forms (`CPF_DROPIN_DIR`)
+are rendered and verified before the setup (`hpcagent-bench job prepare ... --steps cpf`): the agent starts from them.
 `helpers/scripts/cache_env.sh` sets the paths.
 
 **Warm-up.** The ML track's denominator (`torch-autotune`) is not compiled by `prepare_job.sh`: each
@@ -100,7 +99,7 @@ each task taking `kernels[SLURM_PROCID::SLURM_NTASKS]`; [docs/jobs.md](../docs/j
 DaCe's base SDFG (`--frameworks dace_cpu_parallel,numba`), the reference graded as `/score` grades it (golden
 outputs and baseline timings into the judge's disk store when `cache.disk_results_levels` or
 `cache.disk_results_tracks` serves the kernel), every timed cell of the torch denominator, and the CPF
-forms, each graded once, when `--cpf-view` is given.
+forms, each graded once, with `--cpf`.
 
 ## Prerequisites
 

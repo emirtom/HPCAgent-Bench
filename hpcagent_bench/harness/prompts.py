@@ -598,7 +598,7 @@ def packet_skills(search_dirs: Sequence[str], language: str, *, multinode: bool 
 _TOOL_ORDER = ("baseline", "score", "submit", "search")
 
 #: Fragment stem -> the config key that makes this judge serve the tool's route without a packet.
-SERVED_BY_CONFIG = {"canonical_parallel_form": cpf_cache.CONFIG_KEY}
+SERVED_BY_CONFIG = {"canonical_parallel_form": "service.canonical_parallel_form_dir"}
 
 #: Fragment stem -> the languages its route serves (PAPI counts a host process only).
 LANGUAGE_TOOL_FRAGMENTS: dict[str, frozenset[Language]] = {

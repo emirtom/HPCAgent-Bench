@@ -133,10 +133,7 @@ def test_a_prerender_caches_the_form_and_a_rerun_renders_nothing(spec: BenchSpec
     second = second_record.results["c"]
     assert (second.key, second.cached) == (first.key, True)
 
-    view = tmp_path / "view"
-    cpf_cache.open_view(view, cache, Target.CPU, "test-commit")
-    cpf_cache.record(view, spec.short_name, "c", "fp64", HintDetail.PROOFS, second.model_dump())
-    form = cpf_cache.resolve(view, spec.short_name, "c", "fp64", HintDetail.PROOFS)
+    form = cpf_cache.form(cache, str(second.key))
     native = binding_from_spec(spec)
     assert form.entry == native.symbol
     abi = [a.name for a in native.args] + ["workspace", "workspace_size"]
@@ -183,7 +180,7 @@ def test_a_form_rendered_again_from_the_stored_sdfg_is_the_first_render_byte_for
     assert rendered.results is not None, rendered
     first = rendered.results["c"]
     entry = cpf_cache.entry_path(cache, str(first.key))
-    manifest = cpf_cache.EntryManifest.model_validate_json((entry / cpf_cache.MANIFEST_NAME).read_bytes())
+    manifest = cpf_cache.Entry.model_validate_json((entry / cpf_cache.MANIFEST_NAME).read_bytes())
     text = (entry / manifest.artefacts[Role.SOURCE].name).read_text()
     shutil.rmtree(entry)
     again = cpf_bridge.prerender_kernel(spec, cache, languages=["c"], **prerender_kwargs())

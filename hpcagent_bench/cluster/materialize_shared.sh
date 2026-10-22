@@ -87,8 +87,8 @@ while read -r kernel; do
     # differs from the control in that file's content only. A drop-in: canonical symbol, the ABI's
     # argument order, no DaCe runtime. Unset CPF_DROPIN_DIR is the control and stages nothing.
     if [[ -n "${CPF_DROPIN_DIR:-}" ]]; then
-        if ! "${bench_python}" -m hpcagent_bench.cpf.cache stage \
-             --view "${CPF_DROPIN_DIR}" --kernel "${stem}" --language "${AGENT_LANGUAGE:-c}" --target "${CPF_TARGET:-cpu}" \
+        if ! "${bench_python}" -m hpcagent_bench.cpf.prerender stage \
+             --cache "${CPF_DROPIN_DIR}" --kernel "${stem}" --language "${AGENT_LANGUAGE:-c}" --target "${CPF_TARGET:-cpu}" \
              ${HPCAGENT_BENCH_CPF_HINTS:+--hints "${HPCAGENT_BENCH_CPF_HINTS}"} \
              --dest "${dest}" --name "${module}_reference"; then
             echo "materialize_shared: HEAD-START setup cannot stage a drop-in for ${stem} from ${CPF_DROPIN_DIR}" >&2
