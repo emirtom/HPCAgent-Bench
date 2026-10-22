@@ -71,5 +71,10 @@ if [ ! -f "${home}/ready" ]; then
     ) 9>"${home}/lock"
 fi
 touch "${home}/ready"
+# relayout ships its corpus (hand-written Fortran/numpy of benchmark kernels, cloudsc_llmr.f90 among them) as package
+# data; an agent's venv must not carry it. Idempotent, so a venv built before this line is pruned too.
+if [ "${role}" = agent ]; then
+    rm -rf "$("${venv}/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["platlib"])')/relayout/corpus"
+fi
 export VIRTUAL_ENV="${venv}" PATH="${venv}/bin:${PATH}" HPCAGENT_BENCH_IMAGE_PYTHON="${venv}/bin/python3"
 exec "$@"
