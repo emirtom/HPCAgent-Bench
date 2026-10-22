@@ -87,7 +87,7 @@ def test_a_newaxis_argument_is_staged_with_the_axis_it_inserts(tmp_path: pathlib
         for s in ast.walk(kernel)
         if isinstance(s, ast.Assign) and ast.unparse(s.targets[0]) == staged
     ]
-    assert allocations == ["np.empty((batch, 1, feat), dtype=np.float64)"], source
+    assert allocations == ["np.empty((batch, 1, feat), dtype=dc_float)"], source
 
 
 @pytest.mark.integration

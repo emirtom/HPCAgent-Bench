@@ -268,7 +268,7 @@ def desugar_for_python_backend(source: str, kir: KernelIR, backend: str | None =
             NormalizeNegativeAxis(ranks),
             IxWriteToLoop(ranks, dtypes, fn),
             FancySliceStoreToLoop(ranks, dtypes),
-            EighInline(ranks, eigh_aliases, dtypes, kir_array_dtypes),
+            EighInline(ranks, eigh_aliases, dtypes, kir_array_dtypes, keep_library=backend == "dace"),
             ValueHoist(LINALG_HOIST, tables),
             # dace lowers batched and reshape-wrapped matmul and einsum itself, to library nodes.
             *([] if backend == "dace" else [ReshapeMatmulInline(ranks), BatchedMatmulToLoop(ranks)]),

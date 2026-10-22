@@ -278,6 +278,16 @@ def caller_side_shape(
     return out
 
 
+def buffer_dtype(tag: str) -> str:
+    """The dtype a call-site buffer for a ``tag`` value is allocated with: a float or complex one takes the run's
+    precision token (``np_float`` / ``np_complex``), so an fp32 run accumulates in fp32 like the helper it feeds."""
+    if tag.startswith("complex"):
+        return "np_complex"
+    if tag.startswith("float"):
+        return "np_float"
+    return f"np.{tag}"
+
+
 def build_callsite_stmts(
     lhs: ast.expr,
     name: str,
@@ -322,7 +332,7 @@ def build_callsite_stmts(
         if info is not None and not isinstance(arg, ast.Name):
             shp, dt = info
             atmp = f"__harg_{hidx}_{k}"
-            pre.append(f"{atmp} = np.empty(({', '.join(shp)},), dtype=np.{dt})")
+            pre.append(f"{atmp} = np.empty(({', '.join(shp)},), dtype={buffer_dtype(dt)})")
             pre.append(f"{atmp}[:] = {ast.unparse(arg)}")
             call_srcs.append(atmp)
         else:
@@ -341,13 +351,13 @@ def build_callsite_stmts(
             reads = {ident for src in call_srcs for ident in IDENT_RE.findall(src)}
             call_srcs.append(lhs.id)
             if lhs.id not in live_buffers and lhs.id not in reads:
-                pre.append(f"{lhs.id} = np.empty(({', '.join(hret_shape)},), dtype=np.{hret_dtype})")
+                pre.append(f"{lhs.id} = np.empty(({', '.join(hret_shape)},), dtype={buffer_dtype(hret_dtype)})")
         return ast.parse("\n".join([*pre, f"{name}({', '.join(call_srcs)})"])).body
     tmp = f"__hret_tmp_{hidx}"
     call_srcs.append(tmp)
     lines = [
         *pre,
-        f"{tmp} = np.empty(({', '.join(hret_shape)},), dtype=np.{hret_dtype})",
+        f"{tmp} = np.empty(({', '.join(hret_shape)},), dtype={buffer_dtype(hret_dtype)})",
         f"{name}({', '.join(call_srcs)})",
         f"{ast.unparse(lhs)} = {tmp}",
     ]
