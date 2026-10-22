@@ -30,6 +30,7 @@ from hpcagent_bench.translators.numpyto_common.numpy_desugar.counting import (
     REPEAT_AXIS_HOIST,
     AddAtInline,
     BincountInline,
+    SegmentSumInline,
     DiffToSliceDifference,
     RepeatCountsInline,
     SearchsortedMaterialize,
@@ -135,6 +136,7 @@ __all__ = [
     "REDUCE_FNS",
     "AddAtInline",
     "BincountInline",
+    "SegmentSumInline",
     "CallKinds",
     "ComplexAccessorToFunc",
     "DecomposeRollSlice",
@@ -289,6 +291,7 @@ def desugar_for_python_backend(source: str, kir: KernelIR, backend: str | None =
             AddAtInline(ranks),
             SearchsortedMaterialize(),
             StripAstypeCopyKwarg(),
+            SegmentSumInline(fn),
             RepeatCountsInline(ranks),
             BincountInline(ranks),
             # After RepeatCountsInline, which reads ``np.diff(p)`` structurally to prove its length telescopes.

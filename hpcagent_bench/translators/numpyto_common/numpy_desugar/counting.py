@@ -24,6 +24,7 @@ __all__ = [
     "DiffToSliceDifference",
     "RepeatCountsInline",
     "SearchsortedMaterialize",
+    "SegmentSumInline",
     "StripAstypeCopyKwarg",
     "hoist_histogram",
     "hoist_repeat_axis",
@@ -81,6 +82,108 @@ class StripAstypeCopyKwarg(RewritePass):
             node.keywords = [k for k in node.keywords if k.arg != "copy"]
             self.changed = True
         return node
+
+
+def repeated_rows(node: ast.stmt) -> tuple[str, ast.expr, ast.expr] | None:
+    """``R = np.repeat(np.arange(N[, dtype=...]), np.diff(P))`` -> ``(R, N, P)``: the row of every CSR entry."""
+    if not (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)):
+        return None
+    call = node.value
+    if not (isinstance(call, ast.Call) and numpy_call_attr(call) == "repeat" and len(call.args) == 2) or call.keywords:
+        return None
+    rows, counts = call.args
+    if not (isinstance(rows, ast.Call) and numpy_call_attr(rows) == "arange" and len(rows.args) == 1):
+        return None
+    if not (isinstance(counts, ast.Call) and numpy_call_attr(counts) == "diff" and len(counts.args) == 1):
+        return None
+    return node.targets[0].id, rows.args[0], counts.args[0]
+
+
+def segment_sum_call(node: ast.AST, rows: str, extent: ast.expr) -> ast.Call | None:
+    """The ``np.bincount(rows, weights=W, minlength=N)`` in ``node`` that sums the CSR entries of each row."""
+    for call in walk_nodes(node):
+        if not (isinstance(call, ast.Call) and numpy_call_attr(call) == "bincount" and len(call.args) == 1):
+            continue
+        kw = {k.arg: k.value for k in call.keywords}
+        if not (isinstance(call.args[0], ast.Name) and call.args[0].id == rows) or set(kw) != {"weights", "minlength"}:
+            continue
+        if ast.unparse(kw["minlength"]) == ast.unparse(extent):
+            return call
+    return None
+
+
+class SegmentSumInline(RewritePass):
+    """``np.bincount(np.repeat(np.arange(N), np.diff(P)), weights=W, minlength=N)`` -> per-row sums of ``W``.
+
+    A CSR SpMV spells its row sums that way (minife). Lowered one call at a time it is a serial prefix-sum fill of
+    one row index per entry, then a scatter-add through it; as one loop over the rows each sums its own entries
+    ``W[P[i] - P[0] : P[i + 1] - P[0]]`` in index order -- bincount's order -- with no index array, no carried
+    position, and a write ``out[i]`` the rows share nothing through.
+    """
+
+    __slots__ = ("fn",)
+
+    def __init__(self, fn: ast.FunctionDef) -> None:
+        super().__init__()
+        #: The function the visited statements belong to: a row index read anywhere else in it stays.
+        self.fn = fn
+        # A pair at the top level spans two of the statements the driver visits one at a time: rewritten here, before
+        # it walks the body.
+        while self.rewrite_block(fn, fn, "body"):
+            self.changed = True
+
+    def visit(self, node: ast.AST) -> ast.AST:
+        # Any statement list under the statement: inlined helpers put the pair inside the solver's loops.
+        while any(self.rewrite_block(self.fn, holder, field) for holder, field in statement_lists(node)):
+            self.changed = True
+        return node
+
+    def rewrite_block(self, fn: ast.FunctionDef, holder: ast.AST, field: str) -> bool:
+        """Rewrite the first pair in ``holder.<field>``; whether one was."""
+        body = getattr(holder, field)
+        for k, stmt in enumerate(body):
+            found = repeated_rows(stmt)
+            if found is None:
+                continue
+            rows, extent, ptr = found
+            if sum(1 for n in walk_nodes(fn) if isinstance(n, ast.Name) and n.id == rows) != 2:
+                continue  # the binding and one bincount read, or not ours
+            users = [j for j in range(k + 1, len(body)) if segment_sum_call(body[j], rows, extent) is not None]
+            if len(users) != 1:
+                continue
+            j = users[0]
+            call = segment_sum_call(body[j], rows, extent)
+            weights = {kw.arg: kw.value for kw in call.keywords}["weights"]
+            name = f"__ss{self._ctr}"
+            self._ctr += 1
+            p, n, w = ast.unparse(ptr), ast.unparse(extent), ast.unparse(weights)
+            lines = [
+                f"{name}_w = {w}",
+                f"{name} = np.zeros(({n},), dtype=np.float64)",
+                f"for {name}_i in range({n}):",
+                f"    {name}_s = 0.0",
+                f"    for {name}_j in range({p}[{name}_i] - {p}[0], {p}[{name}_i + 1] - {p}[0]):",
+                f"        {name}_s = {name}_s + {name}_w[{name}_j]",
+                f"    {name}[{name}_i] = {name}_s",
+            ]
+            replace_call_with_name(body[j], call, name)
+            pre = ast.parse("\n".join(lines)).body
+            for new in pre:
+                ast.copy_location(new, body[j])
+                ast.fix_missing_locations(new)
+            setattr(holder, field, body[:k] + body[k + 1 : j] + pre + body[j:])
+            return True
+        return False
+
+
+def statement_lists(node: ast.AST) -> list[tuple[ast.AST, str]]:
+    """Every ``(holder, field)`` of a statement list in ``node``: bodies and else branches."""
+    return [
+        (holder, field)
+        for holder in walk_nodes(node)
+        for field in ("body", "orelse", "finalbody")
+        if isinstance(getattr(holder, field, None), list) and getattr(holder, field) and isinstance(getattr(holder, field)[0], ast.stmt)
+    ]
 
 
 class RepeatCountsInline(RankedRewritePass):
