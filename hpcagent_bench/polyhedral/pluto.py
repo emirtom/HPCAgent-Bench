@@ -312,8 +312,9 @@ def transformed_path(scop: pathlib.Path) -> pathlib.Path:
 
 
 #: polycc's memory cap: aes_graupel's pluto grew to 786 GB and OOM-killed the CI step (exit 143); a capped run
-#: fails like any polycc refusal and the kernel is skipped.
-POLYCC_MEMORY_LIMIT = 8 << 30
+#: fails like any polycc refusal and the kernel is skipped. 4 GiB: two CI workers fit a 16 GB runner, and every
+#: kernel that transforms fits (GH200: on aarch64 pluto crashes on aes_graupel with or without the retry's flag).
+POLYCC_MEMORY_LIMIT = 4 << 30
 
 
 def run_bounded(
