@@ -229,7 +229,8 @@ def with_workspace_parameters(source: str, kernel: str, language: Language) -> s
             f"({header.group(1)})", f"({header.group(1)}, &\n    & {WORKSPACE_NAME}, {WORKSPACE_SIZE_NAME})", 1
         )
         return source[: header.start()] + named + "\n".join(lines)
-    stub_parameters = re.search(rf"\b{symbol}\s*\(([^()]*)\)", stub)
+    # A sparse argument's comment in the stub carries brackets and parentheses ("[indptr[r], indptr[r+1])").
+    stub_parameters = re.search(rf"\b{symbol}\s*\(([^()]*)\)", re.sub(r"/\*.*?\*/", "", stub, flags=re.DOTALL))
     if stub_parameters is None:
         return source
     pair = [" ".join(part.split()) for part in stub_parameters.group(1).split(",")][-2:]
