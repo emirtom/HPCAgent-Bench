@@ -7,7 +7,6 @@
 #   MODEL=kimi27sglang hpcagent_bench/cluster/serve-only.sbatch   another model (any experiments/layers/model-<MODEL>.env)
 #   SUBMIT=0 hpcagent_bench/cluster/serve-only.sbatch             print what would be submitted, submit nothing
 #   PREWARM=1 MODEL=glm53 hpcagent_bench/cluster/serve-only.sbatch  boot, run every served shape once, exit: fills the kernel caches
-#   PROBE="1 10 20 40" hpcagent_bench/cluster/serve-only.sbatch  boot, run the prefix-cache probe at those concurrencies, exit
 # It derives --nodes from the env file, so never pass --nodes yourself. Account, partition and GPUs per node resolve as
 # for an experiment job (`hpcagent-bench job options`: $SBATCH_ACCOUNT, $SBATCH_PARTITION,
 # $HPCAGENT_BENCH_JOB_GPUS_PER_NODE or the system's systems.yaml entry); the time limit is SERVE_TIME (default 04:00:00).
@@ -166,17 +165,6 @@ if [[ "${PREWARM:-0}" == 1 ]]; then
     printf 'prewarm: %s aiter builds this boot; cache %s\n' \
         "$(grep -ah 'start build' "${RUN_DIR}"/server-*.log | wc -l)" \
         "$(du -sh "${JIT_CACHE_ROOT:?helpers/scripts/cache_env.sh exports it}"/.aiter/aiter-* 2>/dev/null | tr '\n' ' ')"
-    kill "${SERVER_PID}" 2>/dev/null || true
-    wait "${SERVER_PID}" 2>/dev/null || true
-    exit "${rc}"
-fi
-
-if [[ -n "${PROBE:-}" ]]; then
-    # Prefix-cache probe at the concurrencies PROBE lists (containers/inference/prefix-cache-probe.py), then exit.
-    rc=0
-    # shellcheck disable=SC2086  # PROBE is a list of concurrencies
-    "${HPCAGENT_BENCH_HOST_PYTHON:-python3}" "${HPCAGENT_BENCH_REPO}/containers/inference/prefix-cache-probe.py" \
-        --base "${BASE_URL}" --model "${SERVED_MODEL}" --concurrency ${PROBE} ${PROBE_ARGS:-} || rc=$?
     kill "${SERVER_PID}" 2>/dev/null || true
     wait "${SERVER_PID}" 2>/dev/null || true
     exit "${rc}"
