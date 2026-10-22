@@ -82,9 +82,7 @@ def condition_label(condition: str, treatments: Sequence[str]) -> str:
     if condition == "":
         return packets.control_label(treatments)
     named = study_tags.names("packets")
-    return " + ".join(
-        named.get(study_tags.canonical("packets", part), part) for part in condition.split("+")
-    )
+    return " + ".join(named.get(study_tags.canonical("packets", part), part) for part in condition.split("+"))
 
 
 def rank_condition(condition: str) -> tuple[int, str]:

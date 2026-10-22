@@ -76,9 +76,7 @@ def publish_failure(
     return key
 
 
-def cache_with(
-    tmp_path: pathlib.Path, kernel: str, dialect: str = "c", target: Target = Target.CPU
-) -> pathlib.Path:
+def cache_with(tmp_path: pathlib.Path, kernel: str, dialect: str = "c", target: Target = Target.CPU) -> pathlib.Path:
     """``tmp_path/cache`` holding ``kernel``'s form in ``dialect`` for ``target`` (``// <kernel> form``; on gpu with
     its device unit)."""
     cache = tmp_path / "cache"
