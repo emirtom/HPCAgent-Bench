@@ -58,6 +58,7 @@ def fake_popen_class(statuses: list[str], seen: list[int] | None = None) -> type
             if seen is not None:
                 seen.append(cls.live)
             self.returncode = None
+            self.pid = 0
             status = statuses[min(cls.spawned - 1, len(statuses) - 1)]
             stdout.write(init_line(status))
             stdout.flush()
@@ -266,6 +267,7 @@ def crashing_popen_class(exit_codes: list[int]) -> type:
             # Recorded so a test can assert on exactly what production passed to Popen.
             self.kwargs = {"cwd": cwd, "env": env, "stdout": stdout, "stderr": stderr, "text": text, **kwargs}
             self.returncode = None
+            self.pid = 0
             self.captured = ""
             if isinstance(stdout, int) or stdout is None:
                 # claude_supports_flag's --help probe goes through subprocess.run(capture_output=True,

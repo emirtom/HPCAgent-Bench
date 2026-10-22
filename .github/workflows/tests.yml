@@ -477,7 +477,7 @@ jobs:
         include:
           - { index: 0, shard: "0/2" }
           - { index: 1, shard: "1/2" }
-    timeout-minutes: 45
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v5
         with:
@@ -495,8 +495,9 @@ jobs:
       - name: Every level-3 DaCe port lowers, or fails the way LOWERING_REFUSED records
         if: ${{ !cancelled() }}
         # --timeout sits over LOWER_TIMEOUT_S (1500 s) so the child's own timeout reports first.
-        # Emit once (prewarm) before xdist forks.
-        timeout-minutes: 18
+        # Emit once (prewarm) before xdist forks. The shards are dealt by parse cost, so one half carries
+        # the slow ML lowerings (densenet121 alone ~7 min).
+        timeout-minutes: 24
         env:
           HPCAGENT_BENCH_DACE_PARSE_SHARD: ${{ matrix.shard }}
           # The work runs in spawned children that coverage does not measure.
