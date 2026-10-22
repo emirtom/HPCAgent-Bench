@@ -767,7 +767,13 @@ def render_sdfg(
     parsed = parse_kernel(spec, numpy_py, precision)
     if isinstance(parsed, cpf_canonical.RenderFailure):
         return RenderRecord.model_validate({**rec.model_dump(exclude_unset=True), **parsed._asdict()})
-    canonicalize_for(parsed, target, cpf_canonical.small_symbols(spec), cpf_canonical.nonnegative_symbols(spec))
+    canonicalize_for(
+        parsed,
+        target,
+        cpf_canonical.small_symbols(spec),
+        cpf_canonical.nonnegative_symbols(spec),
+        cpf_canonical.positive_symbols(spec),
+    )
     form = render_canonical(spec, short_for(numpy_py), parsed, language, precision, target, hints)
     rec.entry = form.entry
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -839,6 +845,7 @@ def form_keys(
         target,
         cpf_canonical.small_symbols(spec),
         cpf_canonical.nonnegative_symbols(spec),
+        cpf_canonical.positive_symbols(spec),
     )
     forms = {}
     for language in languages:

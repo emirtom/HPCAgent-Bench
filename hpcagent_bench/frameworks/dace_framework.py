@@ -372,6 +372,8 @@ class PipelineContext:
     small: frozenset[str] = frozenset()
     #: The symbols ``canonicalize`` may treat as non-negative (:func:`cpf_canonical.nonnegative_symbols`).
     nonnegative: frozenset[str] = frozenset()
+    #: The size symbols ``canonicalize`` may treat as positive (:func:`cpf_canonical.positive_symbols`).
+    positive: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -438,6 +440,7 @@ def pipeline_canonicalize(sdfg: dace.SDFG, ctx: PipelineContext) -> None:
 
     target = "gpu" if ctx.device is dace_dtypes.DeviceType.GPU else "cpu"
     cpf_canonical.declare_small(sdfg, ctx.small)
+    cpf_canonical.declare_positive(sdfg, ctx.positive)
     # validate_all re-validates after every stage (a bisect aid); the final validate still runs.
     canonicalize(sdfg, target=target, validate_all=False, nonnegative_symbols=sorted(ctx.nonnegative))
     if target == "gpu":
@@ -696,12 +699,15 @@ class DaceFramework(Framework):
         return program
 
     def build_context(
-        self, small: frozenset[str] = frozenset(), nonnegative: frozenset[str] = frozenset()
+        self,
+        small: frozenset[str] = frozenset(),
+        nonnegative: frozenset[str] = frozenset(),
+        positive: frozenset[str] = frozenset(),
     ) -> PipelineContext:
-        """Bundle the module-level DaCe handles the pipelines refer to, and the kernel's ``small`` and
-        ``nonnegative`` symbols, into one record."""
+        """Bundle the module-level DaCe handles the pipelines refer to, and the kernel's ``small``, ``nonnegative``
+        and ``positive`` symbols, into one record."""
         device = dace_dtypes.DeviceType.GPU if self.column.arch is Arch.GPU else dace_dtypes.DeviceType.CPU
-        return PipelineContext(device=device, small=small, nonnegative=nonnegative)
+        return PipelineContext(device=device, small=small, nonnegative=nonnegative, positive=positive)
 
     def device_tag(self) -> str:
         """The cache filename discriminator for the target device (``cpu`` / ``gpu``)."""
@@ -762,6 +768,7 @@ class DaceFramework(Framework):
             target,
             cpf_canonical.small_symbols(spec),
             cpf_canonical.nonnegative_symbols(spec),
+            cpf_canonical.positive_symbols(spec),
         )
         sdfg, cached = cpf_canonical.canonical_sdfg(spec, impl, key, cache_root, precision, target)
         if isinstance(sdfg, cpf_canonical.RenderFailure):
@@ -828,7 +835,11 @@ class DaceFramework(Framework):
         # The parsed ``@dace.program`` from :meth:`implementations`, whose SDFG the pipelines deepcopy.
         if not isinstance(program, DaceProgram):
             raise TypeError(f"{self.fname}: optimize needs a parsed @dace.program, got {type(program).__name__}")
-        ctx = self.build_context(cpf_canonical.small_symbols(bench.spec), cpf_canonical.nonnegative_symbols(bench.spec))
+        ctx = self.build_context(
+            cpf_canonical.small_symbols(bench.spec),
+            cpf_canonical.nonnegative_symbols(bench.spec),
+            cpf_canonical.positive_symbols(bench.spec),
+        )
         pin_cpp_standard(self.column.arch.text)
         pin_host_compiler()
         pin_per_rank_build_dirs()

@@ -175,6 +175,25 @@ def nonnegative_symbols(spec: BenchSpec) -> frozenset[str]:
     return frozenset((sizes | set(spec.config_names) | integer_scalars) - negative)
 
 
+def positive_symbols(spec: BenchSpec) -> frozenset[str]:
+    """The size symbols canonicalize may treat as positive: at least 1 in every preset and over the whole fuzz range,
+    minus ``public.negative``."""
+    from hpcagent_bench import fuzz
+    from hpcagent_bench.spec import fuzz_bounds
+
+    sizes = {name for preset in spec.parameters.values() for name in preset} - spec.config_names
+    fuzzed = fuzz.resolve_ranges(spec.parameters, config_names=frozenset(spec.config))
+    negative = set(spec.public.negative) if spec.public is not None else set()
+    positive = set()
+    for name in sizes - negative:
+        bounds = [fuzz_bounds(preset[name]) for preset in spec.parameters.values() if name in preset]
+        if name in fuzzed:
+            bounds.append(fuzz_bounds(fuzzed[name]))
+        if all(bound is not None and bound[0] >= 1 for bound in bounds):
+            positive.add(name)
+    return frozenset(positive)
+
+
 def canonical_key(
     program: pathlib.Path,
     commit: str,
@@ -182,9 +201,10 @@ def canonical_key(
     target: Target,
     small: frozenset[str] = frozenset(),
     nonnegative: frozenset[str] = frozenset(),
+    positive: frozenset[str] = frozenset(),
 ) -> str:
-    """The canonical entry of ``program`` at dace ``commit`` for ``target``, keyed on ``small`` and ``nonnegative``
-    only when non-empty (so other entries keep their key)."""
+    """The canonical entry of ``program`` at dace ``commit`` for ``target``, keyed on ``small``, ``nonnegative`` and
+    ``positive`` only when non-empty (so other entries keep their key)."""
     options: dict[str, object] = {
         "precision": fptype_tag(precision),
         "target": target.text,
@@ -195,6 +215,8 @@ def canonical_key(
         options["small"] = sorted(small)
     if nonnegative:
         options["nonnegative"] = sorted(nonnegative)
+    if positive:
+        options["positive"] = sorted(positive)
     return cpf_cache.cache_key("canonical", file_sha256(program), commit, options)
 
 
@@ -275,16 +297,30 @@ def declare_small(sdfg: "SDFG", small: frozenset[str]) -> None:
             sdfg.set_symbol_scale(name, symbolic.Scale.SMALL)
 
 
+def declare_positive(sdfg: "SDFG", positive: frozenset[str]) -> None:
+    """Declare each of the ``positive`` symbols the SDFG has positive (nested SDFGs inherit it)."""
+    from dace import symbolic
+
+    for name in sorted(positive):
+        if name in sdfg.symbols:
+            sdfg.set_symbol_assumptions(name, frozenset({symbolic.Predicate.POSITIVE}))
+
+
 def canonicalize_for(
-    sdfg: "SDFG", target: Target, small: frozenset[str] = frozenset(), nonnegative: frozenset[str] = frozenset()
+    sdfg: "SDFG",
+    target: Target,
+    small: frozenset[str] = frozenset(),
+    nonnegative: frozenset[str] = frozenset(),
+    positive: frozenset[str] = frozenset(),
 ) -> None:
-    """Step 3, in place: declare ``small`` and ``nonnegative`` symbols (others have unknown sign), canonicalize,
+    """Step 3, in place: declare ``small``, ``positive`` and ``nonnegative`` symbols (others have unknown sign), canonicalize,
     offload on GPU, then finalize. Without the finalize tail the unit renders SEQUENTIAL; finalize rejects a GPU
     graph never offloaded."""
     from dace.transformation.passes.canonicalize.finalize import finalize_for_target, offload_to_gpu
     from dace.transformation.passes.canonicalize.pipeline import canonicalize
 
     declare_small(sdfg, small)
+    declare_positive(sdfg, positive)
     canonicalize(sdfg, validate=True, validate_all=False, target=target.text, nonnegative_symbols=sorted(nonnegative))
     if target is Target.GPU:
         offload_to_gpu(sdfg)
@@ -308,7 +344,7 @@ def produce(
         if isinstance(parsed, RenderFailure):
             cpf_cache.publish(cache_root, key, {**fields, **parsed._asdict()})
             return
-        canonicalize_for(parsed, target, small_symbols(spec), nonnegative_symbols(spec))
+        canonicalize_for(parsed, target, small_symbols(spec), nonnegative_symbols(spec), positive_symbols(spec))
     except Exception as exc:  # noqa: BLE001 -- a raised error is a verdict worth remembering
         cpf_cache.publish(cache_root, key, {**fields, **failure(exc)._asdict()})
         return
