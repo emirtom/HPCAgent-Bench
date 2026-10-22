@@ -171,6 +171,14 @@ REQUIRE_OK = frozenset(
 )
 
 
+def agents_start_from_translation(stem: str) -> bool:
+    """A level-3 scientific-computing kernel: its agents are staged the C, C++ or Fortran translation to start
+    from (stage_signature.py), so each must reach ``ok``. Sparse kernels are graded per layout by
+    tests/translators/test_sparse_oracle.py instead."""
+    spec = BenchSpec.load(stem)
+    return spec.track is Track.SCIENTIFIC_COMPUTING and spec.resolved_level == 3 and not spec.sparse_layouts
+
+
 #: Kernels whose generated numba the sweep skips: numba's ``parallel=True`` compile of it runs from minutes to
 #: most of an hour (cloudsc 2578 s), past a CI leg's budget. Faster-compiling generated numba is v0.3 work.
 NUMBA_SLOW_COMPILE = frozenset({"bout_elm_pb", "cloudsc", "cloudsc_monolith", "fv3_dycore"})
@@ -489,10 +497,21 @@ def test_e2e_numerical_correctness(stem: str, backend: str) -> None:
         )
         pytest.skip(status)
     if status.startswith("skip"):
-        required = (stem, backend) in REQUIRE_OK and E2E_PRECISION == "fp64" and status != "skip:not-installed"
+        held = (stem, backend) in REQUIRE_OK or (
+            backend in NATIVE_EMIT_BACKENDS and agents_start_from_translation(stem)
+        )
+        required = held and E2E_PRECISION == "fp64" and status != "skip:not-installed"
         assert not required, f"{stem} [{backend}] must reach ok at fp64 (REQUIRE_OK) but returned {status}"
         pytest.skip(status)
     assert status == "ok", f"{stem} [{backend}] -> {status}"
+
+
+def test_every_translation_an_agent_starts_from_is_swept_on_every_push() -> None:
+    """The native job sweeps every gated kernel, so each level-3 scientific-computing translation is held to
+    ``ok`` on every push."""
+    starts = {stem for stem in _gated_stems() if agents_start_from_translation(stem)}
+    assert len(starts) >= 50, sorted(starts)
+    assert not starts & set(MISSING_EMIT_FEATURE), sorted(starts & set(MISSING_EMIT_FEATURE))
 
 
 def test_every_required_ok_pair_is_swept_on_every_push() -> None:
