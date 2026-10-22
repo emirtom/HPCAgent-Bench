@@ -202,7 +202,8 @@ def canon_kernel_row(
     """One canon-sweep column's row against ``baseline``, restricted to ``tag``: a kernel without a validated result
     is filled at 1x and flagged undelivered (never dropped); ``mark_pending`` sets aside kernels without a canon row;
     ``baseline_fallback`` times a kernel the baseline did not verify against that column instead."""
-    times, substituted = canon.with_fallback(canon.read_times(canon_frame), baseline, baseline_fallback)
+    raced = canon.with_best_of(canon.read_times(canon_frame), baseline, baseline_references(baseline))
+    times, substituted = canon.with_fallback(raced, baseline, baseline_fallback)
     substituted = substituted & set(tag_kernels)
     base, cur = times.get(baseline, {}), times.get(column, {})
     kernels = sorted(tag_kernels)
@@ -225,7 +226,8 @@ def unattempted_kernels(
 ) -> frozenset[str]:
     """The ``kernels`` with no canon row yet for ``column`` or for ``baseline`` (or its fallback)."""
     status = canon.read_status(canon_frame)
-    base_run = status.get(baseline, {}).keys() | (
+    references = [canon.REFERENCE_COLUMNS.get(name, name) for name in baseline_references(baseline)]
+    base_run = set[str]().union(*(status.get(name, {}).keys() for name in (baseline, *references))) | (
         status.get(baseline_fallback, {}).keys() if baseline_fallback else set()
     )
     attempted = status.get(column, {}).keys() & base_run
