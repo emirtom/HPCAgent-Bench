@@ -34,6 +34,8 @@ from hpcagent_bench.polyhedral.pluto_normalize import normalize_scop_input, rest
 __all__ = [
     "FP32_LIBM",
     "FRAMEWORK",
+    "INT64_MAX",
+    "INTEGER_LITERAL",
     "OVERRIDE_INPUT_SUFFIX",
     "OVERRIDE_OUTPUT_SUFFIX",
     "OVERRIDE_PRECISIONS",
@@ -45,6 +47,7 @@ __all__ = [
     "assert_numeric_agreement",
     "dedupe_scratch_declarations",
     "oracle_pluto_status",
+    "oversized_literal",
     "override_scop_inputs",
     "override_source",
     "pet_parse_env",
@@ -80,6 +83,24 @@ POLYCC_ARGS: tuple[str, ...] = ("--pet", "--tile", "--parallel", "--codegen-cont
 def polycc_exe() -> str | None:
     """``polycc`` on PATH, or ``None`` when Pluto is not installed."""
     return shutil.which("polycc")
+
+
+#: An integer literal in polycc's output (a float's digits excluded).
+INTEGER_LITERAL = re.compile(r"(?<![\w.])\d+(?![\w.])")
+
+#: The largest literal C can spell (``INT64_MAX``); polycc's bound arithmetic may emit larger ones.
+INT64_MAX = 2**63 - 1
+
+
+def oversized_literal(code: str) -> str:
+    """The first integer literal in ``code`` beyond ``INT64_MAX`` (preprocessor lines skipped), or ``""``."""
+    for line in code.splitlines():
+        if line.lstrip().startswith("#"):
+            continue
+        found = next((m.group() for m in INTEGER_LITERAL.finditer(line) if int(m.group()) > INT64_MAX), "")
+        if found:
+            return found
+    return ""
 
 
 #: The header :func:`pet_parse_env` shadows ``<bits/math-vector.h>`` with, for the pet parse only.
@@ -358,7 +379,8 @@ def run_polycc(
     published with one atomic ``os.replace``, so concurrent callers only ever see a complete file
     and a FAILED run leaves a previous ``out`` untouched. The returned argv names ``out`` as the
     ``-o`` target, so the report echoes the command without rebuilding it. ``timeout`` (seconds,
-    ``None`` = unbounded) bounds a wedged polycc through :func:`run_bounded`.
+    ``None`` = unbounded) bounds a wedged polycc through :func:`run_bounded`. Output whose bounds need a literal C
+    cannot spell (:func:`oversized_literal`) is declined, never published.
     """
     exe = polycc_exe()
     if exe is None:
@@ -383,9 +405,16 @@ def run_polycc(
             raise
     if proc.returncode != 0 or not tmp_out.is_file():
         tmp_out.unlink(missing_ok=True)
-    else:
-        tmp_out.write_text(dedupe_scratch_declarations(restore_output(tmp_out.read_text())))
-        pathlib.Path(tmp_out).replace(out)
+        return argv, proc
+    code = dedupe_scratch_declarations(restore_output(tmp_out.read_text()))
+    literal = oversized_literal(code)
+    if literal:
+        tmp_out.unlink()
+        raise NotSupportedByFramework(
+            FRAMEWORK, scop.stem, f"polycc's loop bounds need integer constants beyond int64 ({literal})"
+        )
+    tmp_out.write_text(code)
+    pathlib.Path(tmp_out).replace(out)
     return argv, proc
 
 
