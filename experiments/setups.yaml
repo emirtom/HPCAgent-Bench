@@ -19,7 +19,7 @@
 #
 # Budget: one for every track and every model, set on the two root experiments (experiment, llrbase-c) and
 # never below them (a models entry or a model layer never sets a budget key; tests/test_env_layers.py enforces
-# it). AGENT_MAX_OUTPUT_TOKENS (40M generated tokens) is the budget the prompt states, with "no time limit";
+# it). AGENT_MAX_OUTPUT_TOKENS (20M generated tokens) is the budget the prompt states, with "no time limit";
 # AGENT_TIMEOUT_SECONDS (20 h) and AGENT_MAX_TOKENS (120M consumed tokens) are unstated backstops. 20 h plus 3 h STAGING_HOURS
 # fit the 23 h max_time_hours of hpcagent_bench/cluster/systems.yaml beverin.
 
@@ -31,7 +31,7 @@ experiment:
     LANGUAGE: c
     AGENT_TIMEOUT_SECONDS: 72000
     AGENT_MAX_TOKENS: 120000000
-    AGENT_MAX_OUTPUT_TOKENS: 40000000
+    AGENT_MAX_OUTPUT_TOKENS: 20000000
     AGENT_SUBMISSION_MODE: multi
   # EFFORT_LADDER: the rungs the server accepts, lowest first; effort.py resolves AGENT_EFFORT from
   # it and an empty ladder sends no reasoning_effort field. CONTEXT_LENGTH: the window the engine
@@ -111,7 +111,7 @@ llrbase-c:
     LANGUAGE: c
     AGENT_TIMEOUT_SECONDS: 72000
     AGENT_MAX_TOKENS: 120000000
-    AGENT_MAX_OUTPUT_TOKENS: 40000000
+    AGENT_MAX_OUTPUT_TOKENS: 20000000
     AGENT_SUBMISSION_MODE: multi
     API_TIMEOUT_MS: 3600000
     AGENT_EFFORT: ''
