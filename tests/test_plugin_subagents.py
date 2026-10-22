@@ -169,7 +169,9 @@ def test_the_task_tool_runs_the_subagent_as_a_nested_conversation(
             reply([{"type": "text", "text": "done"}], "end_turn"),
         ]
     )
-    args = types.SimpleNamespace(model="m", max_output_tokens=100, reasoning_effort="", workdir=tmp_path)
+    args = types.SimpleNamespace(
+        model="m", max_output_tokens=100, reasoning_effort="", workdir=tmp_path, compaction_trigger=None
+    )
     usage = runner_common.UsageLog(tmp_path / "usage.jsonl")
     runnable["task"] = run_anthropic.task_tool(client, args, usage, dict(runnable), (subagents.parse(HELPER),))
     transcript = run_anthropic.Transcript(tmp_path / run_anthropic.TRANSCRIPT)

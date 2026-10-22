@@ -73,15 +73,17 @@ async def run_agent(
     if args.mcp_config is None:
         raise ValueError("--mcp-config is required")
     wait = runner_common.judge_call_timeout(os.environ)
-    window = (
-        runner_common.HistoryWindow(args.compaction_trigger, HEAD_ITEMS)
-        if args.compaction_trigger is not None
-        else None
-    )
+    def new_window() -> runner_common.HistoryWindow | None:
+        """A history window for one conversation (the episode, or one subagent run); None without a trigger."""
+        if args.compaction_trigger is None:
+            return None
+        return runner_common.HistoryWindow(args.compaction_trigger, HEAD_ITEMS)
+
+    window = new_window()
 
     class Recorder(RunHooks[Any]):
-        """Records each call's usage and output to ``log``, and calibrates ``windowed_by`` on what that call was
-        sent (the episode's window only: a subagent runs unwindowed)."""
+        """Records each call's usage and output to ``log``, and calibrates ``windowed_by`` (its conversation's window)
+        on what that call was sent."""
 
         def __init__(self, log: pathlib.Path, windowed_by: runner_common.HistoryWindow | None) -> None:
             self.log = log
@@ -103,10 +105,13 @@ async def run_agent(
             if on_tool_result is not None:
                 on_tool_result(tool.name, result)
 
-    def windowed(data: CallModelData[Any]) -> ModelInputData:
-        if window is None:
-            return data.model_data
-        return ModelInputData(input=window.view(data.model_data.input), instructions=data.model_data.instructions)
+    def windowed_by(by: runner_common.HistoryWindow | None) -> Callable[[CallModelData[Any]], ModelInputData]:
+        def windowed(data: CallModelData[Any]) -> ModelInputData:
+            if by is None:
+                return data.model_data
+            return ModelInputData(input=by.view(data.model_data.input), instructions=data.model_data.instructions)
+
+        return windowed
 
     async def shell(tool_context: Any, arguments: str) -> str:  # noqa: ANN401
         try:
@@ -167,12 +172,14 @@ async def run_agent(
                 helper = helpers[call["subagent_type"]]
                 runs.append(helper.name)
                 log = transcript.with_name(f"openai.subagent-{len(runs)}-{helper.name}.jsonl")
+                # Its own window: a long subagent job compacts like the episode instead of overflowing the context.
+                own = new_window()
                 result = await Runner.run(
                     helper,
                     call["prompt"],
                     max_turns=max_turns,
-                    hooks=Recorder(log, None),
-                    run_config=RunConfig(tracing_disabled=True),
+                    hooks=Recorder(log, own),
+                    run_config=RunConfig(tracing_disabled=True, call_model_input_filter=windowed_by(own)),
                 )
                 return str(result.final_output)
 
@@ -192,7 +199,7 @@ async def run_agent(
             args.prompt.read_text(encoding="utf-8"),
             max_turns=max_turns,
             hooks=Recorder(transcript, window),
-            run_config=RunConfig(tracing_disabled=True, call_model_input_filter=windowed),
+            run_config=RunConfig(tracing_disabled=True, call_model_input_filter=windowed_by(window)),
         )
 
 

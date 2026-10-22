@@ -214,7 +214,15 @@ def task_tool(
         own = {name: runnable[name] for name in subagents.tool_names(subagent, runnable)}
         runs.append(subagent.name)
         transcript = Transcript(args.workdir / f"anthropic.subagent-{len(runs)}-{subagent.name}.jsonl")
-        reason, detail, text = await converse(client, args, usage_log, transcript, own, prompt, system=subagent.prompt)
+        # Its own window: a long subagent job compacts like the episode instead of overflowing the context.
+        window = (
+            runner_common.HistoryWindow(args.compaction_trigger, HEAD_MESSAGES)
+            if args.compaction_trigger is not None
+            else None
+        )
+        reason, detail, text = await converse(
+            client, args, usage_log, transcript, own, prompt, system=subagent.prompt, window=window
+        )
         if reason is not runner_common.EndReason.FINISHED:
             return f"the subagent stopped early ({reason.text}: {detail})\n{text}"
         return text
