@@ -11,6 +11,7 @@ import pathlib
 import re
 import shutil
 import subprocess
+import sys
 import time
 import types
 from collections.abc import Callable
@@ -595,7 +596,7 @@ def test_the_oracle_transforms_with_the_columns_own_flags(
     seen: dict[str, Any] = {}
 
     def capture(cmd: Any, **kwargs: Any) -> subprocess.CompletedProcess:  # noqa: ANN401
-        seen["cmd"] = list(cmd)
+        seen.setdefault("cmd", list(cmd))  # the first attempt; a failed one is retried without the codegen context
         return failing_polycc(cmd)
 
     monkeypatch.setattr(pluto_transform, "polycc_exe", lambda: "/usr/bin/polycc")
@@ -941,6 +942,42 @@ def test_a_timed_out_polycc_cannot_damage_an_existing_destination(
         pluto_transform.run_polycc(scop, out, timeout=1.0)
 
     assert (out.read_bytes(), out.stat().st_mtime_ns) == before, "an expired run damaged a good destination"
+
+
+def test_a_run_failing_under_the_codegen_context_is_retried_once_without_it(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """aes_graupel's polycc outgrew the memory cap under ``--codegen-context=0``; without the flag it transforms.
+    Both attempts run under the cap."""
+    scop = write_scop(tmp_path)
+    out = pluto_transform.transformed_path(scop)
+    executed: list[tuple[list[str], int | None]] = []
+
+    def context_hungry(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess:  # noqa: ANN401
+        executed.append((list(cmd), kwargs.get("memory_limit")))
+        if pluto_transform.CODEGEN_CONTEXT_ARG in cmd:
+            return subprocess.CompletedProcess(cmd, 1, "", "isl_ctx.c: Out of memory")
+        return writing_polycc()(cmd, **kwargs)
+
+    monkeypatch.setattr(pluto_transform, "polycc_exe", lambda: "/usr/bin/polycc")
+    monkeypatch.setattr(pluto_transform, "run_bounded", context_hungry)
+
+    argv, proc = pluto_transform.run_polycc(scop, out)
+
+    assert proc.returncode == 0
+    assert out.read_text() == PUBLISHED
+    assert [pluto_transform.CODEGEN_CONTEXT_ARG in cmd for cmd, _ in executed] == [True, False]
+    assert pluto_transform.CODEGEN_CONTEXT_ARG not in argv
+    assert {cap for _, cap in executed} == {pluto_transform.POLYCC_MEMORY_LIMIT}
+
+
+def test_the_memory_cap_binds_the_child(tmp_path: pathlib.Path) -> None:
+    """A child that allocates past ``memory_limit`` fails instead of growing until the host kills it."""
+    allocate = [sys.executable, "-c", "bytearray(512 * 2**20)"]
+    capped = pluto_transform.run_bounded(allocate, cwd=str(tmp_path), timeout=60, memory_limit=256 * 2**20)
+    free = pluto_transform.run_bounded(allocate, cwd=str(tmp_path), timeout=60)
+    assert capped.returncode != 0 and "MemoryError" in capped.stderr
+    assert free.returncode == 0
 
 
 @pytest.mark.parametrize("polycc", [writing_polycc(), timing_out_polycc])

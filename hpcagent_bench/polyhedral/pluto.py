@@ -33,6 +33,7 @@ from hpcagent_bench.polyhedral.pluto_affine import has_scop, scop_nonaffine_reas
 from hpcagent_bench.polyhedral.pluto_normalize import normalize_scop_input, restore_output
 
 __all__ = [
+    "CODEGEN_CONTEXT_ARG",
     "FP32_LIBM",
     "FRAMEWORK",
     "INT64_MAX",
@@ -49,14 +50,15 @@ __all__ = [
     "assert_numeric_agreement",
     "dedupe_scratch_declarations",
     "oracle_pluto_status",
-    "oversized_literal",
     "override_scop_inputs",
     "override_source",
+    "oversized_literal",
     "pet_parse_env",
     "polycc_exe",
     "publish_text",
     "run_bounded",
     "run_polycc",
+    "run_polycc_once",
     "scop_inputs",
     "specialize_override",
     "transformed_path",
@@ -80,6 +82,10 @@ FRAMEWORK = "pluto"
 #:                     bound, tiled bounds carry the full ``int64_t`` range of a parameter and
 #:                     the emitted literals overflow every C integer type (fdtd_2d, channel_flow).
 POLYCC_ARGS: tuple[str, ...] = ("--pet", "--tile", "--parallel", "--codegen-context=0")
+
+#: The flag :func:`run_polycc` drops on its one retry: under it isl's code generation for aes_graupel outgrows
+#: :data:`POLYCC_MEMORY_LIMIT`, and without it the kernel transforms.
+CODEGEN_CONTEXT_ARG = "--codegen-context=0"
 
 
 def polycc_exe() -> str | None:
@@ -398,9 +404,20 @@ def run_polycc(
     published with one atomic ``os.replace``, so concurrent callers only ever see a complete file
     and a FAILED run leaves a previous ``out`` untouched. The returned argv names ``out`` as the
     ``-o`` target, so the report echoes the command without rebuilding it. ``timeout`` (seconds,
-    ``None`` = unbounded) bounds a wedged polycc through :func:`run_bounded`. Output whose bounds need a literal C
-    cannot spell (:func:`oversized_literal`) is declined, never published.
+    ``None`` = unbounded) bounds a wedged polycc through :func:`run_bounded`. A run that fails with
+    :data:`CODEGEN_CONTEXT_ARG` is retried once without it. Output whose bounds need a literal C cannot spell
+    (:func:`oversized_literal`) is declined, never published.
     """
+    argv, proc = run_polycc_once(scop, out, args, timeout)
+    if proc.returncode != 0 and CODEGEN_CONTEXT_ARG in args:
+        argv, proc = run_polycc_once(scop, out, [arg for arg in args if arg != CODEGEN_CONTEXT_ARG], timeout)
+    return argv, proc
+
+
+def run_polycc_once(
+    scop: pathlib.Path, out: pathlib.Path, args: Sequence[str], timeout: float | None
+) -> tuple[list[str], subprocess.CompletedProcess]:
+    """One :func:`run_polycc` attempt with ``args``."""
     exe = polycc_exe()
     if exe is None:
         raise NotSupportedByFramework(FRAMEWORK, scop.stem, "polycc is not installed on this host")
