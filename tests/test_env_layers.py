@@ -156,23 +156,42 @@ def test_every_glm53_base_pins_its_kv_pool(name: str) -> None:
 
 
 BUDGET_KEYS = ("AGENT_TIMEOUT_SECONDS", "AGENT_MAX_TOKENS", "AGENT_MAX_OUTPUT_TOKENS")
+#: The one budget key a model layer may set, and only upward: the hidden wall clock of a slow model.
+MODEL_TIME_KEY = "AGENT_TIMEOUT_SECONDS"
+#: The longest --time the beverin partitions grant, and the staging the submitter adds to the agent clock.
+PARTITION_HOURS, STAGING_HOURS = 24, 3
 
 
 @pytest.mark.parametrize("experiment", sorted(env_spec.load_spec()))
-def test_an_experiments_budget_is_the_same_for_every_model(experiment: str) -> None:
-    """A track budget binds every model alike: the bare experiment render (what a submitter reads)
-    equals every experiment:model render on both budget keys."""
+def test_an_experiments_token_budget_is_the_same_for_every_model(experiment: str) -> None:
+    """A track's token budgets bind every model alike; a model's wall clock is never below the track's and
+    still fits one job (agent clock plus staging within the partition limit)."""
     track = env_spec.render(experiment)
     assert all(track.get(key, "").isdigit() for key in BUDGET_KEYS), track
+    tokens = [key for key in BUDGET_KEYS if key != MODEL_TIME_KEY]
     for model in (member.value for member in env_spec.Model):
         values = env_spec.render(f"{experiment}:{model}")
-        assert {key: values[key] for key in BUDGET_KEYS} == {key: track[key] for key in BUDGET_KEYS}, model
+        assert {key: values[key] for key in tokens} == {key: track[key] for key in tokens}, model
+        seconds = int(values[MODEL_TIME_KEY])
+        assert seconds >= int(track[MODEL_TIME_KEY]), model
+        assert seconds + STAGING_HOURS * 3600 <= PARTITION_HOURS * 3600, model
 
 
-def test_no_model_layer_or_models_entry_sets_a_budget() -> None:
-    """The budget lives on the experiment only; a model-level one would split a track by model."""
+def test_only_kimi_gets_a_longer_hidden_clock() -> None:
+    track = env_spec.render("experiment")
+    longer = {
+        model.value
+        for model in env_spec.Model
+        if env_spec.render(f"experiment:{model.value}")[MODEL_TIME_KEY] != track[MODEL_TIME_KEY]
+    }
+    assert longer == {"kimi27sglang"}, longer
+    assert env_spec.render("experiment:kimi27sglang")[MODEL_TIME_KEY] == "75600"
+
+
+def test_no_model_layer_or_models_entry_sets_a_token_budget() -> None:
+    """Token budgets live on the experiment only; a model-level one would split a track by model."""
     for path in LAYERS_DIR.glob("*.env"):
-        assert not set(env_spec.assignments(path)) & set(BUDGET_KEYS), path.name
+        assert not set(env_spec.assignments(path)) & (set(BUDGET_KEYS) - {MODEL_TIME_KEY}), path.name
     for name, experiment in env_spec.load_spec().items():
         for model, entry in experiment.models.items():
             assert not set(entry) & set(BUDGET_KEYS), f"{name}.models.{model}"
