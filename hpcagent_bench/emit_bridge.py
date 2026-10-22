@@ -243,7 +243,7 @@ def sparse_layout_documents(layouts: dict[str, SparseLayout]) -> dict[str, Spars
 
 
 def layout_documents(layouts: dict[str, SparseLayout]) -> dict[str, LayoutDocument]:
-    """The ``layouts`` block as a manifest spells it, so :meth:`BenchSpec.from_dict` reads it back."""
+    """The ``layouts`` block as a manifest spells it, so :meth:`BenchSpec.from_manifest` reads it back."""
     return {
         name: LayoutDocument(
             logical_shape=list(lay.logical_shape),

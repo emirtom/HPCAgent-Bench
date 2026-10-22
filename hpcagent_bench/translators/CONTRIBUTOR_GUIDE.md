@@ -11,7 +11,7 @@ A kernel is two files under `hpcagent_bench/benchmarks/<track>/.../<kernel>/`
 ([`docs/benchmarks.md`](../../docs/benchmarks.md)):
 
 - `<kernel>_numpy.py`: the numpy reference and correctness oracle.
-- `<kernel>.yaml`: the manifest. Allowed keys: `KNOWN_MANIFEST_KEYS` in `hpcagent_bench/spec.py`.
+- `<kernel>.yaml`: the manifest. Allowed keys: the `Manifest` model in `hpcagent_bench/manifest_schema.py`.
 
 ## 2. Signature
 

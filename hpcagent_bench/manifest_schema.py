@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The schema of an authored ``<stem>.yaml`` kernel manifest as strict pydantic models (no coercion, text keys):
 :func:`validate_manifest` names the file and the key path of every violation. Meaning (symbols, constraints, dwarf)
-is checked by :meth:`BenchSpec.from_dict`."""
+is checked by :meth:`BenchSpec.from_manifest`."""
 
 import difflib
 import enum
