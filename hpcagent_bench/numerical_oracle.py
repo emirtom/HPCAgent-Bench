@@ -141,6 +141,7 @@ from hpcagent_bench import dtypes as _dtypes  # noqa: E402
 from hpcagent_bench import flags, languages, modules, paths
 from hpcagent_bench.openmp import context as omp_context
 from hpcagent_bench.polyhedral import pluto as pluto_transform
+from hpcagent_bench.frameworks.errors import NotSupportedByFramework  # noqa: E402
 from hpcagent_bench.frameworks.forked import die_with_parent  # noqa: E402
 from hpcagent_bench.harness import disk_cache  # noqa: E402
 from hpcagent_bench.harness.grading import ReferenceUnavailable  # noqa: E402
@@ -1060,6 +1061,8 @@ def run_pluto(
         _cmd, proc = pluto_transform.run_polycc(src, out_c, timeout=oracle_config().polycc_timeout(short))
     except subprocess.TimeoutExpired:
         return "skip:unsupported:polycc-timeout"
+    except NotSupportedByFramework:  # bounds past int64: run_polycc declines the output (c04f68f43)
+        return "skip:unsupported:polycc:int64-bounds"
     if proc.returncode or not out_c.exists():
         reason = pluto_reject_reason(proc.stderr)
         return f"skip:unsupported:polycc:{reason}" if reason else "skip:unsupported:polycc"

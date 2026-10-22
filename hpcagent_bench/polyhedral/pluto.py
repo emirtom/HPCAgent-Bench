@@ -20,6 +20,7 @@ import contextlib
 import os
 import pathlib
 import re
+import resource
 import shutil
 import signal
 import subprocess
@@ -42,6 +43,7 @@ __all__ = [
     "PET_MATH_VECTOR_SHIM",
     "PET_OMP_SHIM",
     "POLYCC_ARGS",
+    "POLYCC_MEMORY_LIMIT",
     "SCRATCH_DECL_RE",
     "assert_affine",
     "assert_numeric_agreement",
@@ -303,8 +305,17 @@ def transformed_path(scop: pathlib.Path) -> pathlib.Path:
     return build_dir / f"{base}_fp64{OVERRIDE_OUTPUT_SUFFIX}"
 
 
+#: polycc's memory cap: aes_graupel's pluto grew to 786 GB and OOM-killed the CI step (exit 143); a capped run
+#: fails like any polycc refusal and the kernel is skipped.
+POLYCC_MEMORY_LIMIT = 8 << 30
+
+
 def run_bounded(
-    cmd: Sequence[str], cwd: str | None = None, timeout: float | None = None, env: dict[str, str] | None = None
+    cmd: Sequence[str],
+    cwd: str | None = None,
+    timeout: float | None = None,
+    env: dict[str, str] | None = None,
+    memory_limit: int = 0,
 ) -> subprocess.CompletedProcess:
     """``subprocess.run`` whose timeout ``killpg``s the child's WHOLE process group.
 
@@ -312,7 +323,15 @@ def run_bounded(
     them; the pipes they keep open then wedge the parent's own read, so the bound would not bind.
     Raises :class:`subprocess.TimeoutExpired` on expiry, like ``subprocess.run``. The child drops
     core dumps (:func:`hpcagent_bench.core_dumps.disable`), so a polycc SIGABRT leaves no litter.
+    ``memory_limit`` (bytes, 0: none) caps each process's address space (``RLIMIT_AS``, inherited by the
+    grandchildren): heap and stack, which the harness raises past what ``RLIMIT_DATA`` would bound.
     """
+
+    def limit() -> None:
+        core_dumps.disable()
+        if memory_limit > 0:
+            resource.setrlimit(resource.RLIMIT_AS, (memory_limit, memory_limit))
+
     proc = subprocess.Popen(
         cmd,
         cwd=cwd,
@@ -320,7 +339,7 @@ def run_bounded(
         stderr=subprocess.PIPE,
         text=True,
         start_new_session=True,
-        preexec_fn=core_dumps.disable,  # noqa: PLW1509 -- spawned from one thread; the child only drops its core limit
+        preexec_fn=limit,  # noqa: PLW1509 -- spawned from one thread; the child only sets its rlimits
         env=env,
     )
     try:
@@ -399,7 +418,13 @@ def run_polycc(
             src.write_text(normalize_scop_input(scop.read_text()))
         cmd = [exe, *args, str(src), "-o", str(tmp_out)]
         try:
-            proc = run_bounded(cmd, cwd=scratch, timeout=timeout, env=pet_parse_env(pathlib.Path(scratch)))
+            proc = run_bounded(
+                cmd,
+                cwd=scratch,
+                timeout=timeout,
+                env=pet_parse_env(pathlib.Path(scratch)),
+                memory_limit=POLYCC_MEMORY_LIMIT,
+            )
         except subprocess.TimeoutExpired:
             tmp_out.unlink(missing_ok=True)
             raise
