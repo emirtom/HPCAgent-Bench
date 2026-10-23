@@ -1359,9 +1359,17 @@ check_gpu_arch() {
     [[ -e /dev/kfd ]] || return 0  # an AMD check (rocminfo, gfx archs): an NVIDIA node has no /dev/kfd
     [[ "${DRY_RUN:-0}" != 1 ]] || return 0
     local checker="${HPCAGENT_BENCH_REPO}/containers/images/gpu_arch_check.sh"
+    # Each check runs under the EDF its step runs under (derived_edf): the registered judge EDF mounts whichever
+    # checkout last rendered it, and one since deleted stops the container before it starts.
     # A service setup runs no inference EDF, so there is no inference image to check the arch of.
-    [[ "${INFERENCE_SOURCE}" != "node" ]] || bash "${checker}" "${INFERENCE_CE_ENV}"
-    [[ "${COLOCATE:-0}" == 1 ]] || bash "${checker}" "${JUDGE_CE_ENV}"
+    if [[ "${INFERENCE_SOURCE}" == "node" ]]; then
+        derived_edf "${INFERENCE_CE_ENV}" vllm-node
+        bash "${checker}" "${EDF_FILE}"
+    fi
+    if [[ "${COLOCATE:-0}" != 1 ]]; then
+        derived_edf "${JUDGE_CE_ENV}" judge-node
+        bash "${checker}" "${EDF_FILE}"
+    fi
 }
 check_gpu_arch
 
