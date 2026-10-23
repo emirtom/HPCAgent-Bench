@@ -291,7 +291,7 @@ def desugar_for_python_backend(source: str, kir: KernelIR, backend: str | None =
             AddAtInline(ranks),
             SearchsortedMaterialize(),
             StripAstypeCopyKwarg(),
-            SegmentSumInline(fn),
+            SegmentSumInline(fn, ranks),
             RepeatCountsInline(ranks),
             BincountInline(ranks),
             # After RepeatCountsInline, which reads ``np.diff(p)`` structurally to prove its length telescopes.

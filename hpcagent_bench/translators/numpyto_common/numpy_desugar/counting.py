@@ -121,12 +121,13 @@ class SegmentSumInline(RewritePass):
     position, and a write ``out[i]`` the rows share nothing through.
     """
 
-    __slots__ = ("fn",)
+    __slots__ = ("fn", "ranks")
 
-    def __init__(self, fn: ast.FunctionDef | ast.Module) -> None:
+    def __init__(self, fn: ast.FunctionDef | ast.Module, ranks: dict[str, int]) -> None:
         super().__init__()
         #: The function the visited statements belong to: a row index read anywhere else in it stays.
         self.fn = fn
+        self.ranks = ranks
         # A pair at the top level spans two of the statements the driver visits one at a time: rewritten here, before
         # it walks the body.
         while self.rewrite_block(fn, fn, "body"):
@@ -159,13 +160,18 @@ class SegmentSumInline(RewritePass):
             name = f"__ss{self._ctr}"
             self._ctr += 1
             p, n, w = ast.unparse(ptr), ast.unparse(extent), ast.unparse(weights)
+            # The entries summed in place when their array is an elementwise expression read nowhere else: minife's
+            # ``values[:nnz] * x[cols[:nnz]]`` was a 27-per-row temporary written and read back every CG iteration.
+            binding = single_use_binding(fn, body[:j], weights)
+            entry = element_at(binding.value if binding else weights, ast.Name(f"{name}_j"), self.ranks)
+            summand = f"{name}_w[{name}_j]" if entry is None else ast.unparse(entry)
             lines = [
-                f"{name}_w = {w}",
+                *([f"{name}_w = {w}"] if entry is None else []),
                 f"{name} = np.zeros(({n},), dtype=np.float64)",
                 f"for {name}_i in range({n}):",
                 f"    {name}_s = 0.0",
                 f"    for {name}_j in range({p}[{name}_i] - {p}[0], {p}[{name}_i + 1] - {p}[0]):",
-                f"        {name}_s = {name}_s + {name}_w[{name}_j]",
+                f"        {name}_s = {name}_s + {summand}",
                 f"    {name}[{name}_i] = {name}_s",
             ]
             replace_call_with_name(body[j], call, name)
@@ -173,9 +179,63 @@ class SegmentSumInline(RewritePass):
             for new in pre:
                 ast.copy_location(new, body[j])
                 ast.fix_missing_locations(new)
-            setattr(holder, field, body[:k] + body[k + 1 : j] + pre + body[j:])
+            kept = [stmt for stmt in body[k + 1 : j] if entry is None or stmt is not binding]
+            setattr(holder, field, body[:k] + kept + pre + body[j:])
             return True
         return False
+
+
+def single_use_binding(fn: ast.AST, before: list[ast.stmt], weights: ast.expr) -> ast.Assign | None:
+    """The ``W = expr`` among ``before`` that ``weights`` names, when that read is the only one of ``W`` in ``fn``."""
+    if not isinstance(weights, ast.Name):
+        return None
+    bindings = [
+        stmt
+        for stmt in before
+        if isinstance(stmt, ast.Assign)
+        and len(stmt.targets) == 1
+        and isinstance(stmt.targets[0], ast.Name)
+        and stmt.targets[0].id == weights.id
+    ]
+    uses = sum(1 for n in walk_nodes(fn) if isinstance(n, ast.Name) and n.id == weights.id)
+    return bindings[0] if len(bindings) == 1 and uses == 2 else None
+
+
+def element_at(expr: ast.expr, j: ast.Name, ranks: dict[str, int]) -> ast.expr | None:
+    """Element ``j`` of the 1-D elementwise expression ``expr`` (``a[:n] * x[c[:n]]`` -> ``a[j] * x[c[j]]``), or
+    ``None`` when ``expr`` is anything else: a name of unknown rank, a call, a 2-D operand."""
+
+    def element(node: ast.expr) -> tuple[ast.expr, bool] | None:
+        """``(element j of node, whether it varies with j)``."""
+        if isinstance(node, ast.Constant):
+            return node, False
+        if isinstance(node, ast.Name):
+            rank = ranks.get(node.id)
+            if rank == 0:
+                return node, False
+            return (ast.Subscript(node, copy.deepcopy(j), ast.Load()), True) if rank == 1 else None
+        if isinstance(node, ast.UnaryOp):
+            inner = element(node.operand)
+            return None if inner is None else (ast.UnaryOp(node.op, inner[0]), inner[1])
+        if isinstance(node, ast.BinOp):
+            left, right = element(node.left), element(node.right)
+            if left is None or right is None:
+                return None
+            return ast.BinOp(left[0], node.op, right[0]), left[1] or right[1]
+        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and ranks.get(node.value.id) == 1:
+            if isinstance(node.slice, ast.Slice):
+                if node.slice.step is not None:
+                    return None
+                at = copy.deepcopy(j) if node.slice.lower is None else ast.BinOp(node.slice.lower, ast.Add(), copy.deepcopy(j))
+                return ast.Subscript(node.value, at, ast.Load()), True
+            index = element(node.slice)  # a gather through an index array
+            if index is None or not index[1]:
+                return None
+            return ast.Subscript(node.value, index[0], ast.Load()), True
+        return None
+
+    found = element(expr)
+    return found[0] if found is not None and found[1] else None
 
 
 def statement_lists(node: ast.AST) -> list[tuple[ast.AST, str]]:
