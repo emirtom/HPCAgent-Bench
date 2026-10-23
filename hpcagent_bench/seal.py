@@ -422,7 +422,7 @@ def grading_plan(keep: Sequence[str], *, devices: bool = True) -> SealPlan | Non
     cpf = tuple(path for view in cpf_views if view for path in cpf_paths(view))
     kept = tuple(os.path.abspath(path) for path in keep)
     # A python_env's packages, read by the submissions that name it (a venv under a hidden /tmp otherwise vanishes).
-    python_env_sites = tuple(os.environ.get(name, "") for name in python_envs.SITE_ENV.values())
+    python_env_sites = tuple(python_envs.site(name) for name in python_envs.SITE_ENV)
     return SealPlan(
         hide=tuple(path for path in hide if path),
         keep=kept,
