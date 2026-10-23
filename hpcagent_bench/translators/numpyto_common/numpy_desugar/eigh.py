@@ -41,7 +41,7 @@ def kept_eigh_stmts(node: ast.Assign, temp: str) -> list[ast.stmt]:
     """A kept :func:`library_eigh_call` with its operand bound to a name first, so the results' extents can be
     spelled from it (``w`` is ``(temp.shape[0],)``)."""
     call = node.value
-    if isinstance(call.args[0], ast.Name):
+    if not isinstance(call, ast.Call) or isinstance(call.args[0], ast.Name):
         return [node]
     bind = ast.Assign(targets=[ast.Name(id=temp, ctx=ast.Store())], value=call.args[0])
     call.args[0] = ast.Name(id=temp, ctx=ast.Load())

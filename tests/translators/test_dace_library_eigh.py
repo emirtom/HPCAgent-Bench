@@ -44,7 +44,9 @@ def emitted(tmp_path: pathlib.Path) -> str:
         "output_args": ["w", "out"],
     }
     (tmp_path / "k.json").write_text(json.dumps({"benchmark": benchmark}))
-    return emit_dace(parse_kernel(tmp_path / "k_numpy.py", tmp_path / "k.json", open_mesh_grids=False, library_eigh=True))
+    return emit_dace(
+        parse_kernel(tmp_path / "k_numpy.py", tmp_path / "k.json", open_mesh_grids=False, library_eigh=True)
+    )
 
 
 def test_eigh_stays_a_call(tmp_path: pathlib.Path) -> None:

@@ -123,7 +123,7 @@ class SegmentSumInline(RewritePass):
 
     __slots__ = ("fn",)
 
-    def __init__(self, fn: ast.FunctionDef) -> None:
+    def __init__(self, fn: ast.FunctionDef | ast.Module) -> None:
         super().__init__()
         #: The function the visited statements belong to: a row index read anywhere else in it stays.
         self.fn = fn
@@ -132,13 +132,13 @@ class SegmentSumInline(RewritePass):
         while self.rewrite_block(fn, fn, "body"):
             self.changed = True
 
-    def visit(self, node: ast.AST) -> ast.AST:
+    def generic_visit(self, node: ast.AST) -> ast.AST:
         # Any statement list under the statement: inlined helpers put the pair inside the solver's loops.
         while any(self.rewrite_block(self.fn, holder, field) for holder, field in statement_lists(node)):
             self.changed = True
         return node
 
-    def rewrite_block(self, fn: ast.FunctionDef, holder: ast.AST, field: str) -> bool:
+    def rewrite_block(self, fn: ast.FunctionDef | ast.Module, holder: ast.AST, field: str) -> bool:
         """Rewrite the first pair in ``holder.<field>``; whether one was."""
         body = getattr(holder, field)
         for k, stmt in enumerate(body):
@@ -153,6 +153,8 @@ class SegmentSumInline(RewritePass):
                 continue
             j = users[0]
             call = segment_sum_call(body[j], rows, extent)
+            if call is None:
+                continue
             weights = {kw.arg: kw.value for kw in call.keywords}["weights"]
             name = f"__ss{self._ctr}"
             self._ctr += 1
@@ -182,7 +184,9 @@ def statement_lists(node: ast.AST) -> list[tuple[ast.AST, str]]:
         (holder, field)
         for holder in walk_nodes(node)
         for field in ("body", "orelse", "finalbody")
-        if isinstance(getattr(holder, field, None), list) and getattr(holder, field) and isinstance(getattr(holder, field)[0], ast.stmt)
+        if isinstance(getattr(holder, field, None), list)
+        and getattr(holder, field)
+        and isinstance(getattr(holder, field)[0], ast.stmt)
     ]
 
 

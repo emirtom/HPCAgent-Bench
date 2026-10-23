@@ -2627,15 +2627,17 @@ class ResolveShapeReads(ast.NodeTransformer):
             return None
         if not is_numpy_module(node.func.value) or not node.args:
             return None
-        extents = [self.infer(a) for a in node.args]
-        if any(e is None or len(e) != 1 for e in extents):
+        extents = [extent for extent in (self.infer(a) for a in node.args) if extent is not None and len(extent) == 1]
+        if len(extents) != len(node.args):
             return None
         rank = len(extents)
         return [["1"] * k + extent + ["1"] * (rank - k - 1) for k, extent in enumerate(extents)]
 
     def eigh_shapes(self, node: ast.expr) -> list[list[str]] | None:
         """``[w, U]`` extents of an ``np.linalg.eigh`` / ``eigvalsh`` call over a known square operand."""
-        if numpy_submodule_attr(node, "linalg") not in ("eigh", "eigvalsh") or not node.args:
+        if not isinstance(node, ast.Call) or numpy_submodule_attr(node, "linalg") not in ("eigh", "eigvalsh"):
+            return None
+        if not node.args:
             return None
         operand = self.infer(node.args[0])
         if operand is not None and len(operand) == 2:
@@ -2813,10 +2815,13 @@ class ResolveShapeReads(ast.NodeTransformer):
         picked = []
         for side, rank in zip(axes.elts, (len(left), len(right)), strict=True):
             items = side.elts if isinstance(side, (ast.Tuple, ast.List)) else [side]
-            if not all(isinstance(a, ast.Constant) and isinstance(a.value, int) for a in items):
+            axes_of = [a.value for a in items if isinstance(a, ast.Constant) and isinstance(a.value, int)]
+            if len(axes_of) != len(items):
                 return None
-            picked.append({a.value % rank for a in items})
-        return [t for i, t in enumerate(left) if i not in picked[0]] + [t for i, t in enumerate(right) if i not in picked[1]]
+            picked.append({axis % rank for axis in axes_of})
+        return [t for i, t in enumerate(left) if i not in picked[0]] + [
+            t for i, t in enumerate(right) if i not in picked[1]
+        ]
 
     def movedaxis(self, args: Sequence[ast.expr]) -> list[str] | None:
         """``np.moveaxis(x, source, destination)`` with one integer axis each."""
@@ -2824,7 +2829,9 @@ class ResolveShapeReads(ast.NodeTransformer):
             return None
         base = self.infer(args[0])
         source, destination = args[1], args[2]
-        if base is None or not all(isinstance(a, ast.Constant) and isinstance(a.value, int) for a in (source, destination)):
+        if base is None or not (isinstance(source, ast.Constant) and isinstance(destination, ast.Constant)):
+            return None
+        if not (isinstance(source.value, int) and isinstance(destination.value, int)):
             return None
         order = list(range(len(base)))
         order.insert(destination.value % len(base), order.pop(source.value % len(base)))
@@ -3036,8 +3043,11 @@ class CopyScalarAlias(ResolveShapeReads):
             return [] if ranks and all(r == [] for r in ranks) else None
         return super().infer(node)
 
-    def visit_Assign(self, node: ast.Assign) -> ast.Assign:
-        node = super().visit_Assign(node)
+    def visit_Assign(self, node: ast.Assign) -> ast.Assign | None:
+        visited = super().visit_Assign(node)
+        if visited is None:
+            return None
+        node = visited
         value = node.value
         if (
             len(node.targets) == 1
