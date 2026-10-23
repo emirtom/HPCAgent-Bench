@@ -374,6 +374,7 @@ RUN sh /tmp/one-openmp/numpy_on_openblas.sh /opt/view /opt/hpcagent-bench --only
 # ---------------------------------------------------------------------------------------------
 # 5. The launch venv (containers/images/lib/launch_venv.sh, the ENTRYPOINT; judge-agent-amd step 12 explains /opt/launch).
 COPY containers/images/lib/launch_venv.sh containers/images/lib/one_openmp.sh containers/images/lib/openmp_gate.py /opt/launch/
+COPY containers/images/lib/tilelang/pyproject.toml containers/images/lib/tilelang/uv.lock /opt/launch/tilelang/
 RUN set -eux; \
     echo /opt/venv/bin/python3 > /opt/launch/python; \
     echo "--no-install-project --extra cpu --group judge-proxy --no-install-package numpy --no-install-package scipy \

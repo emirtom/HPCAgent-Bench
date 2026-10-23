@@ -142,6 +142,8 @@ amdgpu = [
     "jax-rocm7-plugin ; platform_machine == 'x86_64' and python_version == '3.12'",
     "jax-rocm7-pjrt ; platform_machine == 'x86_64' and python_version == '3.12'",
     "cupy ; platform_machine == 'x86_64'",
+    # FlyDSL: AMD's layout-algebra DSL; its wheel carries its own LLVM/MLIR (x86_64 only).
+    "flydsl ; platform_machine == 'x86_64'",
 ]
 # nvgpu: torch for CUDA 13 from PyTorch's cu132 index, jax and cupy wheels for CUDA 13, PyPI's triton, and cuTile
 # (cuda-tile; compiles with the image toolkit's tileiras, runs on sm_80 and newer), and TileLang (0.1.11 caps z3-solver below 4.15.5).

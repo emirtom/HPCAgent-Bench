@@ -1097,6 +1097,7 @@ RUN set -eux; \
 # a dependency, from the agent/ a step binds); the judge stage drops that flag, so a judge job also installs
 # hpcagent_bench editable from its mounted checkout. The packages this image built are never reinstalled.
 COPY containers/images/lib/launch_venv.sh containers/images/lib/one_openmp.sh containers/images/lib/openmp_gate.py /opt/launch/
+COPY containers/images/lib/tilelang/pyproject.toml containers/images/lib/tilelang/uv.lock /opt/launch/tilelang/
 RUN set -eux; \
     command -v python3 > /opt/launch/python; \
     echo "--no-install-project --extra amdgpu --group judge-proxy --no-install-package numpy --no-install-package scipy \
