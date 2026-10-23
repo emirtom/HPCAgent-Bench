@@ -44,7 +44,7 @@ from hpcagent_bench.categories import Language
 from hpcagent_bench.dtypes import c_type, is_storage_only, storage_typedef
 from hpcagent_bench.frameworks.forked import RunResult, exception_header, run_forked
 from hpcagent_bench.fuzz import FuzzValue, safe_eval
-from hpcagent_bench.harness import nested_blas, precision_casts, timing
+from hpcagent_bench.harness import nested_blas, precision_casts, python_envs, timing
 from hpcagent_bench.harness.judge_scheduler import judge_slots
 from hpcagent_bench.harness.precision_casts import CastPlan, HostCasts, Regroup, storage_view_dtype
 from hpcagent_bench.harness.task import setup_declared_host_only
@@ -1918,13 +1918,22 @@ def call_python(
     (a pre-fork cupy must not start a device runtime in the child).
     Returns ``(outputs, [ns samples], [followup outputs], [RepTiming])``."""
     func_name, input_args, output_args = py_meta
+    python_envs.enter(pathlib.Path(py_path))
     spec = importlib.util.spec_from_file_location("hpcagent_bench_agent_submission", str(py_path))
     if spec is None or spec.loader is None:
         raise RuntimeError(f"python submission {py_path} is not importable as a module")
     module = importlib.util.module_from_spec(spec)
     # Register before exec, so multiprocessing/joblib workers can unpickle its functions.
     sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except ModuleNotFoundError as exc:
+        env = python_envs.missing(exc.name)
+        if not env:
+            raise
+        raise ModuleNotFoundError(
+            f"{exc}: submit with python_env {env!r} to run where it imports", name=exc.name
+        ) from exc
     if not modules.defines(module, func_name):
         raise RuntimeError(f"python submission must define a function named {func_name!r}")
     func = modules.function(module, func_name)

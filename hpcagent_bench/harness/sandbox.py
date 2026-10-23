@@ -25,6 +25,7 @@ from hpcagent_bench import config, flags, languages, seal
 from hpcagent_bench.openmp import context as omp_context
 from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.flags import Mode
+from hpcagent_bench.harness import python_envs
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.support.bindings.contract import Binding
 from hpcagent_bench.support.bindings.mpi_driver import gen_mpi_driver, kernel_library_path, mpi_symbol
@@ -493,6 +494,7 @@ class Sandbox:
                 return BuildResult(False, None, residency_error)
             py = self.root / f"{short}_submission.py"
             py.write_text(submission.source or "")
+            python_envs.stage(py, submission.python_env)
             return BuildResult(True, py, "", commands=jit_commands(submission.source or ""))
 
         if submission.source is None:
@@ -592,6 +594,7 @@ class Sandbox:
         if submission.is_python:
             py = self.root / f"{short}_mpi_submission.py"
             py.write_text(submission.source or "")
+            python_envs.stage(py, submission.python_env)
             return BuildResult(True, py, "", commands=jit_commands(submission.source or ""))
         if submission.source is None:
             return BuildResult(False, None, "MPI 'any' (prebuilt library) delivery is not supported yet")

@@ -142,7 +142,10 @@ IMPORT_PATH_EDIT = re.compile(
 )
 
 
-IMPORT_PATH_ALLOW = {"tests/test_check_repo_rules.py": "spells the edits the pattern must catch"}
+IMPORT_PATH_ALLOW = {
+    "tests/test_check_repo_rules.py": "spells the edits the pattern must catch",
+    "hpcagent_bench/harness/python_envs.py": "puts a submission's named python_env first, in the one process grading it",
+}
 
 
 def import_path(files: list[str]) -> list[str]:

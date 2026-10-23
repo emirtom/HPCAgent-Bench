@@ -905,6 +905,7 @@ def submission_from_body(
         build=build_tokens,
         workspace_bytes=body.optional_text("workspace_bytes"),
         compiler=body.optional_text("compiler"),
+        python_env=body.optional_text("python_env"),
         requests=requests,
     )
 
