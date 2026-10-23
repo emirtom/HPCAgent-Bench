@@ -1766,6 +1766,22 @@ def scattered(src: str, ranks: dict) -> str:
     return ast.unparse(out)
 
 
+def test_an_arange_row_index_scatters_one_row_per_point() -> None:
+    """warpx's shape factors: ``sx[rows, c] = v`` with ``rows = np.arange(p)`` writes row ``t`` at point ``t``. Read
+    as ``rows[t]`` the row was data, and no loop over the particles could map; a rebound arange stays a load."""
+    src = (
+        "def k(sx, c, v, p):\n"
+        "    rows = np.arange(p)\n"
+        "    sx[rows, c] = v\n"
+        "    other = np.arange(p)\n"
+        "    other = other + 1\n"
+        "    sx[other, c] = v\n"
+    )
+    out = scattered(src, {"sx": 2, "c": 1, "v": 1, "rows": 1, "other": 1, "p": 0})
+    assert "sx[__hpcagent_bench_scatter0_i, c[__hpcagent_bench_scatter0_i]]" in out
+    assert "sx[other[__hpcagent_bench_scatter1_i], c[__hpcagent_bench_scatter1_i]]" in out
+
+
 def test_a_method_call_receiver_that_is_not_a_name_is_bound_first() -> None:
     """dace resolves a method call by walking the attribute chain down to a Name
     (``astutils.rname``); a call or a subscript receiver raises "Unsupported AST <node> nested

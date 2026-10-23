@@ -1527,6 +1527,28 @@ def loop_target_ranks(fn_ast: ast.FunctionDef) -> dict[str, int]:
     return ranks
 
 
+def arange_identities(tree: ast.AST) -> frozenset[str]:
+    """Names ``tree`` binds once to ``np.arange(n)`` and never writes otherwise: element ``p`` of one is ``p``."""
+    aranged: set[str] = set()
+    stores: dict[str, int] = {}
+    for node in walk_nodes(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            stores[node.id] = stores.get(node.id, 0) + 1
+        elif isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Store) and isinstance(node.value, ast.Name):
+            stores[node.value.id] = stores.get(node.value.id, 0) + 2  # an element write: never the identity
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and isinstance(node.value, ast.Call)
+            and np_call_attr(node.value.func) == "arange"
+            and len(node.value.args) == 1
+            and all(kw.arg == "dtype" for kw in node.value.keywords)
+        ):
+            aranged.add(node.targets[0].id)
+    return frozenset(name for name in aranged if stores.get(name) == 1)
+
+
 class PointwiseScatterToLoop(ast.NodeTransformer):
     """``A[i, j] = / += rhs`` with INDEX ARRAYS -> the explicit point-wise loop.
 
@@ -1542,11 +1564,25 @@ class PointwiseScatterToLoop(ast.NodeTransformer):
     :class:`numpyto_common.numpy_desugar.IxWriteToLoop` carries, and undetectable statically.
     """
 
-    __slots__ = ("ctr", "ranks")
+    __slots__ = ("ctr", "identities", "ranks")
 
-    def __init__(self, ranks: dict[str, int]) -> None:
+    def __init__(self, ranks: dict[str, int], identities: frozenset[str] = frozenset()) -> None:
         self.ranks = ranks
+        #: Index arrays that are ``np.arange(n)`` (:func:`arange_identities`): element ``p`` of one is ``p``.
+        self.identities = identities
         self.ctr = 0
+
+    def visit_Module(self, node: ast.Module) -> ast.Module:
+        if not self.identities:
+            self.identities = arange_identities(node)
+        self.generic_visit(node)
+        return node
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
+        if not self.identities:
+            self.identities = arange_identities(node)
+        self.generic_visit(node)
+        return node
 
     def lower(self, node: ast.Assign | ast.AugAssign, target: ast.expr, op: str) -> ast.stmt | list[ast.stmt]:
         if not (
@@ -1585,7 +1621,12 @@ class PointwiseScatterToLoop(ast.NodeTransformer):
         value = ast.unparse(node.value) if value_rank == 0 else bind(node.value, f"{prefix}_v")
         driver = names[ranks.index(1)]
         it = f"{prefix}_i"
-        index = ", ".join(nm if r == 0 else f"{nm}[{it}]" for nm, r in zip(names, ranks, strict=False))
+        # ``sx[rows, c] = v`` with ``rows = np.arange(p)`` writes row ``p`` at point ``p``: spelled as the loop variable,
+        # the store is provably one row per iteration (warpx's per-particle shape factors kept their loops sequential).
+        index = ", ".join(
+            nm if r == 0 else it if nm in self.identities else f"{nm}[{it}]"
+            for nm, r in zip(names, ranks, strict=False)
+        )
         rhs = value if value_rank == 0 else f"{value}[{it}]"
         lines.append(f"for {it} in range({driver}.shape[0]):")
         lines.append(f"    {target.value.id}[{index}] {op} {rhs}")
