@@ -635,7 +635,6 @@ ENV PATH=/opt/gcc/bin:/opt/view/bin:/opt/papi/bin:/opt/rocm/bin:${PATH} \
     OPENBLAS_ROOT=/opt/view \
     OPENBLAS_DIR=/opt/view \
     HPTT_ROOT=/usr/local \
-    LIBXSMM_ROOT=/usr/local \
     TBLIS_ROOT=/usr/local \
     OPENMPI_ROOT=/opt/openmpi \
     PAPI_ROCM_ROOT=/opt/rocm \
@@ -885,17 +884,13 @@ RUN set -eux; \
 # Comment here, not inside the RUN -- one between line continuations is passed to the shell and
 # comments out the rest.
 COPY containers/images/lib/build-hptt.sh /build-hptt.sh
-COPY containers/images/lib/build-libxsmm.sh /build-libxsmm.sh
 COPY containers/images/lib/build-tblis.sh /build-tblis.sh
 ARG TBLIS_REF=v1.3.0
 RUN set -eux; \
     sh /build-hptt.sh; \
-    sh /build-libxsmm.sh; \
     TBLIS_REF="${TBLIS_REF}" sh /build-tblis.sh; \
     ldconfig; \
     test -f /usr/local/include/hptt.h; \
-    test -f /usr/local/include/libxsmm/libxsmm.h; \
-    test -f /usr/local/lib/libxsmm.so; \
     test -f /usr/local/include/tblis/tblis.h; \
     { test -f /usr/local/lib/libtblis.so || test -f /usr/local/lib/libtblis.a; }
 
@@ -1458,6 +1453,17 @@ RUN --mount=type=bind,source=hpcagent_bench,target=/hb-src/hpcagent_bench \
     cd /hb-src && PYTHONDONTWRITEBYTECODE=1 python3 -m hpcagent_bench.openmp.catalog --write /opt/omp/catalog.json --check' \
     && rm -rf /opt/launch-gate /tmp/one-openmp /opt/hpcagent-bench-agent/hpcagent_agent \
     && { mountpoint -q /uv-cache || rm -rf /uv-cache; }
+
+# LIBXSMM (dace's small-GEMM lowering; agents link -lxsmm): the last build step, so a change to it rebuilds
+# this layer and none of the toolchain above. Before the mirror drop: it clones through the mirror.
+COPY containers/images/lib/build-libxsmm.sh /build-libxsmm.sh
+RUN set -eux; \
+    sh /build-libxsmm.sh; \
+    rm -f /build-libxsmm.sh; \
+    ldconfig; \
+    test -f /usr/local/include/libxsmm/libxsmm.h; \
+    test -f /usr/local/lib/libxsmm.so
+ENV LIBXSMM_ROOT=/usr/local
 
 # Drop the build-time mirror rewrite from the SHIPPED image.
 COPY containers/images/lib/git_mirror.sh /tmp/git_mirror.sh
