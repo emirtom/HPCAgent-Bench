@@ -8,6 +8,7 @@ NumPy reference and returns it as a compiled SDFG (see DaceFramework.optimize)."
 import contextlib
 import copy
 import importlib
+import json
 import os
 import pathlib
 import shlex
@@ -32,7 +33,7 @@ from dace.codegen.instrumentation.report import DurationEvent
 from dace.frontend.python.parser import DaceProgram
 from dace.transformation.dataflow import MapCollapse
 
-from hpcagent_bench import languages, modules, paths, phase_clock
+from hpcagent_bench import array_facts, languages, modules, paths, phase_clock
 from hpcagent_bench.cpf import canonical as cpf_canonical
 from hpcagent_bench import flags as bench_flags
 from hpcagent_bench.categories import Language
@@ -716,9 +717,10 @@ class DaceFramework(Framework):
         return importlib.import_module(bench.impl_module(self.column.postfix))
 
     def import_kernel(self, bench: Benchmark) -> DaceProgram:
-        """Import the kernel module and return the ``@dace.program``."""
+        """Import the kernel module and return the ``@dace.program``, carrying the kernel's active array facts."""
         self.ensure_impls(bench)
         program: DaceProgram = modules.member(self.kernel_module(bench), bench.spec.func_name, DaceProgram)
+        array_facts.apply_to_program(bench.spec, program)
         return program
 
     def build_context(
@@ -738,8 +740,9 @@ class DaceFramework(Framework):
 
     def sdfg_fingerprint(self, bench: Benchmark) -> str:
         """Freshness key for a kernel's cached base SDFG: the numpy reference, the generated
-        ``<module>_dace.py``, the precision, the DaCe tree (:func:`framework_cache.dace_tree_fingerprint`) and the
-        HPCAgent-Bench tree (:func:`framework_cache.bench_tree_fingerprint`)."""
+        ``<module>_dace.py``, the precision, the active array facts, the DaCe tree
+        (:func:`framework_cache.dace_tree_fingerprint`) and the HPCAgent-Bench tree
+        (:func:`framework_cache.bench_tree_fingerprint`)."""
         from hpcagent_bench import cache_files, framework_cache, paths
 
         kdir = paths.BENCHMARKS / bench.spec.relative_path
@@ -750,6 +753,9 @@ class DaceFramework(Framework):
             if p.exists():
                 parts.append(p.read_bytes())
         parts.append(str(self.datatype).encode())
+        facts = array_facts.key(bench.spec)
+        if facts is not None:
+            parts.append(json.dumps(facts, sort_keys=True).encode())
         parts.append(framework_cache.dace_tree_fingerprint().encode())
         parts.append(framework_cache.bench_tree_fingerprint().encode())
         return cache_files.sha256_hex(b"\x00".join(parts))
@@ -792,6 +798,7 @@ class DaceFramework(Framework):
             cpf_canonical.small_symbols(spec),
             cpf_canonical.nonnegative_symbols(spec),
             cpf_canonical.positive_symbols(spec),
+            array_facts.key(spec),
         )
         sdfg, cached = cpf_canonical.canonical_sdfg(spec, impl, key, cache_root, precision, target)
         if isinstance(sdfg, cpf_canonical.RenderFailure):

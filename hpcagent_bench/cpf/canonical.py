@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 import pydantic
 
-from hpcagent_bench import framework_cache, modules, paths, phase_clock
+from hpcagent_bench import array_facts, framework_cache, modules, paths, phase_clock
 from hpcagent_bench.cpf import cache as cpf_cache
 from hpcagent_bench.cache_files import file_sha256
 from hpcagent_bench.cpf.cache import RenderVerdict, Role, Target
@@ -202,9 +202,11 @@ def canonical_key(
     small: frozenset[str] = frozenset(),
     nonnegative: frozenset[str] = frozenset(),
     positive: frozenset[str] = frozenset(),
+    array_facts: list[object] | None = None,
 ) -> str:
-    """The canonical entry of ``program`` at dace ``commit`` for ``target``, keyed on ``small``, ``nonnegative`` and
-    ``positive`` only when non-empty (so other entries keep their key)."""
+    """The canonical entry of ``program`` at dace ``commit`` for ``target``, keyed on ``small``, ``nonnegative``,
+    ``positive`` and ``array_facts`` (:func:`hpcagent_bench.array_facts.key`) only when set (so other entries keep
+    their key)."""
     options: dict[str, object] = {
         "precision": fptype_tag(precision),
         "target": target.text,
@@ -217,6 +219,8 @@ def canonical_key(
         options["nonnegative"] = sorted(nonnegative)
     if positive:
         options["positive"] = sorted(positive)
+    if array_facts is not None:
+        options["array_facts"] = array_facts
     return cpf_cache.cache_key("canonical", file_sha256(program), commit, options)
 
 
@@ -255,6 +259,7 @@ def parse_program(spec: BenchSpec, impl: pathlib.Path, precision: str) -> "SDFG 
     prog = resolve_program(module, impl, spec.func_name)
     if prog is None:
         return RenderFailure(RenderVerdict.NOPROGRAM)
+    array_facts.apply_to_program(spec, prog)
     sdfg = prog.to_sdfg(simplify=True)
     fold_closure_arrays(prog, sdfg)
     return sdfg

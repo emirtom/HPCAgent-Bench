@@ -2,6 +2,8 @@
 # (env_spec.py), adds the setup's own keys (packet, identity, problems file) and snapshots the result
 # per submission.
 #
+#   array_facts      on | off: the prompt states each kernel's array_facts and dace gets them (cpf.array_facts).
+#                    Unnamed, the parent's, else off.
 #   requests         the requests preset (layers/requests-<preset>.env: none, default, scaling, layout,
 #                    mixed-precision, placement): what a submission's `requests` may ask the judge for. Unnamed,
 #                    the parent's, else default. Only a preset sets HPCAGENT_BENCH_REQUESTS_*.

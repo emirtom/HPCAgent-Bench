@@ -1488,6 +1488,8 @@ class BenchSpec(BaseModel):
     constraints: tuple[str, ...] = ()
     #: The ``public`` block (what the agent is told); ``None`` when the manifest declares none.
     public: manifest_schema.PublicBlock | None = None
+    #: The ``array_facts`` block (what the input arrays satisfy on every call); ``None`` when the manifest has none.
+    array_facts: manifest_schema.ArrayFactsBlock | None = None
 
     def replace(self, **changes: object) -> "BenchSpec":
         """A copy with ``changes`` applied, validated; :raises pydantic.ValidationError: on a bad value or field."""
@@ -1659,6 +1661,7 @@ class BenchSpec(BaseModel):
             config_valid=config_valid,
             constraints=constraints,
             public=manifest.public,
+            array_facts=manifest.array_facts,
         )
         validate_public(spec, source)
         validate_negative(spec, source)

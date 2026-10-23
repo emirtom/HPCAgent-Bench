@@ -21,6 +21,7 @@ from hpcagent_agent.tools import mcp_server
 from hpcagent_agent.tools import registry as tool_registry
 
 from hpcagent_bench import (
+    array_facts,
     config,
     external_skills,
     fuzz,
@@ -1129,6 +1130,8 @@ def build_context(
             {"name": name, "description": description}
             for name, description in sorted((spec.public.negative if spec.public is not None else {}).items())
         ],
+        # Stated only with ``cpf.array_facts`` on, as the dace translation declares them.
+        "array_facts": array_facts.prose(spec),
         "score_sampling": score_sampling(),
         "oracle": oracle.text,
         "baseline": resolved_baseline.text,

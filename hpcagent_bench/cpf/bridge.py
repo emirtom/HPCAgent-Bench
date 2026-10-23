@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import pydantic
 
-from hpcagent_bench import config, framework_cache, languages, paths, phase_clock
+from hpcagent_bench import array_facts, config, framework_cache, languages, paths, phase_clock
 from hpcagent_bench.cpf import cache as cpf_cache
 from hpcagent_bench.cpf import canonical as cpf_canonical
 from hpcagent_bench.categories import Language, Track
@@ -846,6 +846,7 @@ def form_keys(
         cpf_canonical.small_symbols(spec),
         cpf_canonical.nonnegative_symbols(spec),
         cpf_canonical.positive_symbols(spec),
+        array_facts.key(spec),
     )
     forms = {}
     for language in languages:
