@@ -5,9 +5,9 @@
 Cleanup release. Results-database and wire schemas are unchanged: 0.3.0 reads every 0.2.x row. Rows of removed
 columns stay readable and plottable, not runnable.
 
-Pins: dace extended `88859f01f`.
+Pins: dace extended `3a9fcfce9`.
 
-### dace extended `baac24733` -> `88859f01f`
+### dace extended `baac24733` -> `3a9fcfce9`
 Merges dace main. Each modulo spelling has one meaning (`PyMod`/`FtnModulo` floored, `CMod`/`FtnMod` and a bare
 `%` truncating), and numeric casts work in symbolic expressions; a symbol a state reads before any assignment
 stays free; ExternCall on GPU data passes device pointers in stream order.
@@ -16,7 +16,9 @@ Canon CPU performance: a top-level real GEMM runs a split-K / syrk shape plan ov
 products not known to be large runs LIBXSMM kernels; a library node in a parallel region takes its single-core
 lowering (a blocked in-thread tensor transpose); an in-place accumulation a loop carries becomes a WCR so the loop
 maps; a dead pre-loop fill no longer blocks privatization; gathers run their index axes outermost; custom-lambda
-WCR atomics are a compare-and-swap loop, not one critical section.
+WCR atomics are a compare-and-swap loop, not one critical section. Canonicalization is cheaper: copy-backs go before
+the loop passes, LICM speculates in-bounds reads, and the OTF map fusion, LoopToMap and transient-reuse cost models
+stop re-probing (cloudsc canonicalize 1291 -> 999 s).
 
 ### Removed
 - **Pythran, the ISO-parallel C++ emit and JAX auto-generation**: the Pythran column, the `numpyto_jax` and
