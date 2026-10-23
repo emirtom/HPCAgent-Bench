@@ -2526,6 +2526,25 @@ class ResolveShapeReads(ast.NodeTransformer):
                 return ast.copy_location(ast.parse(token, mode="eval").body, node)
         return node
 
+    def generic_visit(self, node: ast.AST) -> ast.AST:
+        # ``np.empty(x.shape, ...)`` of an array dace knows takes the descriptor's own extents: spelled by inference,
+        # they can differ in form from what dace derives for x's other readers (cp2k_grid_integrate's ``2 * s + 1``
+        # against its arange's ``(s + 1) - (-s)``), and the broadcasts against those readers stop matching.
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and is_numpy_module(node.func.value)
+            and node.func.attr in ("empty", "zeros", "ones", "full")
+            and node.args
+            and isinstance(node.args[0], ast.Attribute)
+            and node.args[0].attr == "shape"
+            and isinstance(node.args[0].value, ast.Name)
+        ):
+            node.args[1:] = [self.visit(arg) for arg in node.args[1:]]
+            node.keywords = [self.visit(keyword) for keyword in node.keywords]
+            return node
+        return super().generic_visit(node)
+
     def visit_Attribute(self, node: ast.Attribute) -> ast.expr:
         """A whole ``x.shape`` read is the tuple of ``x``'s extents (dace has no runtime ``.shape`` value)."""
         self.generic_visit(node)

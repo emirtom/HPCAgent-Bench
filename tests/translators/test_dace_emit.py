@@ -859,6 +859,15 @@ def test_a_reshapes_minus_one_is_its_inferred_extent_never_the_literal() -> None
     assert lines[-2:] == ["    d2 = b * c * d * h * w // (b * c)", "    d0 = b"]
 
 
+def test_an_allocation_like_an_array_keeps_its_descriptor_shape() -> None:
+    """cp2k_grid_integrate: ``np.empty(b.shape, ...)`` of a gather grid whose extents dace derives from an
+    ``np.arange(-s, s + 1)``. Spelled as the inferred ``2 * s + 1`` it no longer broadcast against the grid's other
+    readers; the descriptor's own shape always does. A whole ``x.shape`` elsewhere is still its tuple."""
+    shapes = {"b": ["2 * s + 1"]}
+    lines = resolved(shapes, "o = np.empty(b.shape, np.float64); r = x.reshape(b.shape)")
+    assert lines == ["    o = np.empty(b.shape, np.float64)", "    r = x.reshape((2 * s + 1,))"]
+
+
 def test_a_reshapes_minus_one_over_an_unsized_source_leaves_the_read_intact() -> None:
     shapes = {"y": ["n"]}
     assert resolved(shapes, "x4 = np.reshape(x3, (b, -1)); d1 = x4.shape[1]")[-1] == "    d1 = x4.shape[1]"
