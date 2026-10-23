@@ -541,7 +541,7 @@ jobs:
       - name: Setup -- build Pluto against LLVM/clang 17
         # The judge-agent images' recipe. clang 17 cannot read GCC 15+ libstdc++ headers, so it is
         # pinned to the runner's GCC 14; kernels are compiled by the normal toolchain.
-        timeout-minutes: 10
+        timeout-minutes: 14
         run: |
           set -euo pipefail
           sudo apt-get install -y --no-install-recommends libstdc++-14-dev
