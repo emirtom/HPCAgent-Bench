@@ -22,7 +22,15 @@ from hpcagent_bench.frameworks.framework import (
 )
 from hpcagent_bench.harness import disk_cache, nested_blas
 
-__all__ = ["FASTMATH_FLAVOR", "IMPL_NAME", "NJIT_MODULES", "NumbaDispatcher", "NumbaFramework", "fastmath_source", "is_njit"]
+__all__ = [
+    "FASTMATH_FLAVOR",
+    "IMPL_NAME",
+    "NJIT_MODULES",
+    "NumbaDispatcher",
+    "NumbaFramework",
+    "fastmath_source",
+    "is_njit",
+]
 
 #: The numba column's flavor that compiles every ``njit`` function with ``fastmath=True``.
 FASTMATH_FLAVOR = "fastmath"
@@ -64,7 +72,7 @@ def fastmath_source(source: str) -> str:
             if isinstance(decorator, ast.Call) and is_njit(decorator.func):
                 if any(keyword.arg == "fastmath" for keyword in decorator.keywords):
                     continue
-                given = [*decorator.args, *decorator.keywords]
+                given: list[ast.expr | ast.keyword] = [*decorator.args, *decorator.keywords]
                 if given:  # right after the last argument, so a trailing comma stays valid
                     last = max(given, key=lambda arg: (arg.end_lineno or 0, arg.end_col_offset or 0))
                     if last.end_lineno is not None and last.end_col_offset is not None:

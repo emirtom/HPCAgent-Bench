@@ -193,7 +193,12 @@ if __name__ == "__main__":
     import tempfile
 
     test_a_subagent_file_reads_its_name_description_tools_and_prompt()
-    for spelling in ("tools: bash, score", "tools: [bash, score]", 'tools: ["bash", "score"]', "tools:\n  - bash\n  - score"):
+    for spelling in (
+        "tools: bash, score",
+        "tools: [bash, score]",
+        'tools: ["bash", "score"]',
+        "tools:\n  - bash\n  - score",
+    ):
         test_a_tools_line_reads_the_same_in_every_yaml_list_spelling(spelling)
     test_a_subagent_file_without_a_description_is_refused()
     test_a_subagent_gets_its_own_tools_and_never_the_task_tool()

@@ -73,6 +73,7 @@ async def run_agent(
     if args.mcp_config is None:
         raise ValueError("--mcp-config is required")
     wait = runner_common.judge_call_timeout(os.environ)
+
     def new_window() -> runner_common.HistoryWindow | None:
         """A history window for one conversation (the episode, or one subagent run); None without a trigger."""
         if args.compaction_trigger is None:
