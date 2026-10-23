@@ -222,6 +222,8 @@ more, so a second budget rerun does not compound:
 Time clamps at 72000 s; a wave's walltime is its longest agent budget plus 3 h staging. Nothing
 counts reruns: a kernel stays owed until delivered. Inside one episode a crashed agent is relaunched
 from an empty workspace up to `AGENT_CRASH_ATTEMPTS` (3) times; a timeout is not.
+With `AGENT_NUDGES=N` (default 0), an agent that ends on its own without submitting is
+resumed in the same session, clock and token budget up to N times with a fixed "continue" prompt.
 
 **Recover before rerunning.** A crashed episode can hold a correct `/score` it never submitted.
 The driver promotes it at agent exit.
