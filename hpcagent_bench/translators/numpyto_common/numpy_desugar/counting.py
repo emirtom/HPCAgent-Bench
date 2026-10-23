@@ -198,7 +198,31 @@ def single_use_binding(fn: ast.AST, before: list[ast.stmt], weights: ast.expr) -
         and stmt.targets[0].id == weights.id
     ]
     uses = sum(1 for n in walk_nodes(fn) if isinstance(n, ast.Name) and n.id == weights.id)
-    return bindings[0] if len(bindings) == 1 and uses == 2 else None
+    if len(bindings) != 1 or uses != 2:
+        return None
+    binding = bindings[0]
+    # Read at the bincount instead of the binding: no statement in between may change what it reads.
+    reads = {n.id for n in walk_nodes(binding.value) if isinstance(n, ast.Name)}
+    between = before[before.index(binding) + 1 :]
+    return None if any(may_write(stmt, reads) for stmt in between) else binding
+
+
+def may_write(stmt: ast.stmt, names: set[str]) -> bool:
+    """Whether ``stmt`` may change one of ``names``: binds it, stores into it, or hands it to a call."""
+    for node in walk_nodes(stmt):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and node.id in names:
+            return True
+        if isinstance(node, (ast.Subscript, ast.Attribute)) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            base = node.value
+            while isinstance(base, (ast.Subscript, ast.Attribute)):
+                base = base.value
+            if isinstance(base, ast.Name) and base.id in names:
+                return True
+        if isinstance(node, ast.Call):
+            operands = [node.func, *node.args, *(k.value for k in node.keywords)]
+            if any(isinstance(n, ast.Name) and n.id in names for o in operands for n in walk_nodes(o)):
+                return True
+    return False
 
 
 def element_at(expr: ast.expr, j: ast.Name, ranks: dict[str, int]) -> ast.expr | None:

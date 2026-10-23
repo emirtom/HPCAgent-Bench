@@ -71,6 +71,14 @@ def test_the_row_sums_read_the_entries_in_place(tmp_path: pathlib.Path, source: 
     assert "contrib" not in module and "_w =" not in module, module
 
 
+def test_weights_whose_operand_changes_before_the_bincount_stay_a_temporary(tmp_path: pathlib.Path) -> None:
+    """``contrib`` read at the bincount after ``x`` is overwritten would sum the new ``x``: it stays bound first."""
+    source = SPMV.replace("    y[:] = np.bincount", "    x[:] = 0.0\n    y[:] = np.bincount")
+    module = emitted(tmp_path, source)
+    assert "bincount" not in module, module
+    assert module.index("contrib = values * x[cols]") < module.index("x[:] = 0.0"), module
+
+
 @pytest.mark.dace_frontend
 @pytest.mark.parametrize("source", SOURCES)
 def test_the_row_sums_match_numpy(tmp_path: pathlib.Path, source: str) -> None:
@@ -107,3 +115,4 @@ if __name__ == "__main__":
             test_the_row_sums_are_one_loop_over_the_rows(pathlib.Path(d), name)
             test_the_row_sums_read_the_entries_in_place(pathlib.Path(d), name)
             test_the_row_sums_match_numpy(pathlib.Path(d), name)
+        test_weights_whose_operand_changes_before_the_bincount_stay_a_temporary(pathlib.Path(d))
