@@ -130,18 +130,17 @@ class SegmentSumInline(RewritePass):
         self.ranks = ranks
         # A pair at the top level spans two of the statements the driver visits one at a time: rewritten here, before
         # it walks the body.
-        while self.rewrite_block(fn, fn, "body"):
+        while self.rewrite_block(fn, fn.body):
             self.changed = True
 
     def generic_visit(self, node: ast.AST) -> ast.AST:
         # Any statement list under the statement: inlined helpers put the pair inside the solver's loops.
-        while any(self.rewrite_block(self.fn, holder, field) for holder, field in statement_lists(node)):
+        while any(self.rewrite_block(self.fn, body) for body in statement_lists(node)):
             self.changed = True
         return node
 
-    def rewrite_block(self, fn: ast.FunctionDef | ast.Module, holder: ast.AST, field: str) -> bool:
-        """Rewrite the first pair in ``holder.<field>``; whether one was."""
-        body = getattr(holder, field)
+    def rewrite_block(self, fn: ast.FunctionDef | ast.Module, body: list[ast.stmt]) -> bool:
+        """Rewrite the first pair in the statement list ``body``, in place; whether one was."""
         for k, stmt in enumerate(body):
             found = repeated_rows(stmt)
             if found is None:
@@ -180,7 +179,7 @@ class SegmentSumInline(RewritePass):
                 ast.copy_location(new, body[j])
                 ast.fix_missing_locations(new)
             kept = [stmt for stmt in body[k + 1 : j] if entry is None or stmt is not binding]
-            setattr(holder, field, body[:k] + kept + pre + body[j:])
+            body[:] = body[:k] + kept + pre + body[j:]
             return True
         return False
 
@@ -266,16 +265,17 @@ def element_at(expr: ast.expr, j: ast.Name, ranks: dict[str, int]) -> ast.expr |
     return found[0] if found is not None and found[1] else None
 
 
-def statement_lists(node: ast.AST) -> list[tuple[ast.AST, str]]:
-    """Every ``(holder, field)`` of a statement list in ``node``: bodies and else branches."""
-    return [
-        (holder, field)
-        for holder in walk_nodes(node)
-        for field in ("body", "orelse", "finalbody")
-        if isinstance(getattr(holder, field, None), list)
-        and getattr(holder, field)
-        and isinstance(getattr(holder, field)[0], ast.stmt)
-    ]
+def statement_lists(node: ast.AST) -> list[list[ast.stmt]]:
+    """Every non-empty statement list in ``node``: bodies, else branches and finally blocks."""
+    lists: list[list[ast.stmt]] = []
+    for holder in walk_nodes(node):
+        if isinstance(holder, (ast.FunctionDef, ast.For, ast.While, ast.If, ast.With, ast.Try, ast.ExceptHandler)):
+            lists.append(holder.body)
+        if isinstance(holder, (ast.For, ast.While, ast.If, ast.Try)):
+            lists.append(holder.orelse)
+        if isinstance(holder, ast.Try):
+            lists.append(holder.finalbody)
+    return [stmts for stmts in lists if stmts]
 
 
 class RepeatCountsInline(RankedRewritePass):
