@@ -52,17 +52,15 @@ def test_tolerance_datatype_tracks_detected_dtype() -> None:
     assert tolerances_for(None) == TOLERANCES["fp64"]
 
 
-def test_gemm_default_datatype_is_fp32_so_its_band_is_fp32() -> None:
-    """gemm's legacy ``initialize()`` defaults to float32 -- the premise of the bug -- so the resolved
-    band must be fp32, not the fp64 floor raw ``datatype=None`` would take."""
+def test_gemm_default_data_is_fp64_and_graded_on_the_fp64_band() -> None:
+    """gemm's ``initialize()`` names a float32 default, but a run with no ``--datatype`` asks for fp64 and gets it,
+    so its band is fp64's."""
     data = Benchmark("gemm").get_data(Preset.S, None)  # no --datatype == the CLI default
     arrays = [v for v in data.values() if isinstance(v, np.ndarray)]
-    assert arrays, "gemm default data is not fp32"
-    assert all(a.dtype == np.float32 for a in arrays), "gemm default data is not fp32"
+    assert arrays, "gemm materialized no arrays"
+    assert all(a.dtype == np.float64 for a in arrays), sorted({a.dtype.name for a in arrays})
     detected = {a.dtype.type for a in arrays}.pop()
-    assert tolerances_for(tolerance_datatype(None, detected)) == TOLERANCES["float32"]
-    # The raw (unfixed) resolution would have taken fp64 -- assert we do NOT.
-    assert tolerances_for(tolerance_datatype(None, detected)) != tolerances_for(None)
+    assert tolerances_for(tolerance_datatype(None, detected)) == TOLERANCES["float64"]
 
 
 def _validated_at_default(framework: str) -> bool:
@@ -71,7 +69,7 @@ def _validated_at_default(framework: str) -> bool:
     from hpcagent_bench.frameworks import Benchmark, Test, generate_framework
 
     test = Test(Benchmark("gemm"), generate_framework(framework))
-    # datatype=None is the CLI default: gemm then materializes fp32 data.
+    # datatype=None is the CLI default: gemm then materializes fp64 data.
     res = test.run(preset=Preset.S, validate=True, repeat=1, timeout=300.0, datatype=None, ignore_errors=True)
     assert res, f"{framework}: no implementations ran"
     return all(d.get("validated") for d in res.values()) and not any(d.get("failure") for d in res.values())
@@ -79,11 +77,10 @@ def _validated_at_default(framework: str) -> bool:
 
 @pytest.mark.parametrize(("framework", "tool"), [("cc", "gcc"), ("llvm", "clang")])
 def test_native_gemm_validates_at_default_datatype(framework: str, tool: str) -> None:
-    """gemm at the default datatype (fp32) validates on the native backends; regression guard for the
-    false-fail where fp32 was graded at the fp64 band and misattributed to the compiler."""
+    """gemm at the default datatype validates on the native backends: data and band are both fp64."""
     if not shutil.which(tool):
         pytest.skip(f"{tool} not installed")
-    assert _validated_at_default(framework), f"{framework}: gemm did not validate at its default (fp32) datatype"
+    assert _validated_at_default(framework), f"{framework}: gemm did not validate at its default datatype"
 
 
 # The SCORED path must consult the band too (not just the framework-validation #
