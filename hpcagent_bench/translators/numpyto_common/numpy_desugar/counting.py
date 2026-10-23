@@ -226,7 +226,11 @@ def element_at(expr: ast.expr, j: ast.Name, ranks: dict[str, int]) -> ast.expr |
             if isinstance(node.slice, ast.Slice):
                 if node.slice.step is not None:
                     return None
-                at = copy.deepcopy(j) if node.slice.lower is None else ast.BinOp(node.slice.lower, ast.Add(), copy.deepcopy(j))
+                at = (
+                    copy.deepcopy(j)
+                    if node.slice.lower is None
+                    else ast.BinOp(node.slice.lower, ast.Add(), copy.deepcopy(j))
+                )
                 return ast.Subscript(node.value, at, ast.Load()), True
             index = element(node.slice)  # a gather through an index array
             if index is None or not index[1]:
