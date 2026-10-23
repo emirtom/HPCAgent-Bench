@@ -5,9 +5,9 @@
 Cleanup release. Results-database and wire schemas are unchanged: 0.3.0 reads every 0.2.x row. Rows of removed
 columns stay readable and plottable, not runnable.
 
-Pins: dace extended `3a9fcfce9`.
+Pins: dace extended `9b4781944`.
 
-### dace extended `baac24733` -> `3a9fcfce9`
+### dace extended `baac24733` -> `9b4781944`
 Merges dace main. Each modulo spelling has one meaning (`PyMod`/`FtnModulo` floored, `CMod`/`FtnMod` and a bare
 `%` truncating), and numeric casts work in symbolic expressions; a symbol a state reads before any assignment
 stays free; ExternCall on GPU data passes device pointers in stream order.
@@ -19,6 +19,12 @@ maps; a dead pre-loop fill no longer blocks privatization; gathers run their ind
 WCR atomics are a compare-and-swap loop, not one critical section. Canonicalization is cheaper: copy-backs go before
 the loop passes, LICM speculates in-bounds reads, and the OTF map fusion, LoopToMap and transient-reuse cost models
 stop re-probing (cloudsc canonicalize 1291 -> 999 s).
+
+Merges dace main's comm library (MPI/NCCL/RCCL `CommNode`s; `_comm` is an integer communicator handle). Canon
+parallelizes stores through an index array that facts prove disjoint: a permutation, row pointers from a running sum
+of nonnegative values, or a declared data assumption (spgemm_hash 9618 -> 637 ms); exclusive running sums lift to
+scans; parallel maps with data-dependent inner work run a guided schedule (spgemm_hash -> 823 ms, nfa_frontier
+8133 -> 7075 ms); stores into a cumsum read only at its last element are dropped, the loop keeping its order.
 
 ### Removed
 - **Pythran, the ISO-parallel C++ emit and JAX auto-generation**: the Pythran column, the `numpyto_jax` and
