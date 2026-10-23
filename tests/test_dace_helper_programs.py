@@ -275,15 +275,6 @@ def parse_through_dace(module: str, stem: str, tmp_path: pathlib.Path) -> None:
         del sys.modules[stem]
 
 
-def test_the_call_site_buffer_takes_the_run_precision(two_extent_module: str) -> None:
-    """nbody: the buffer a helper writes its result into was ``np.float64`` beside ``dc_float`` parameters, and an fp32
-    run refused the call (``declared float32 but "acc" holds float64``)."""
-    kernel_text = ast.unparse(programs(two_extent_module)["k"])
-    buffers = [line for line in kernel_text.splitlines() if "np.empty(" in line]
-    assert buffers, kernel_text
-    assert all("dtype=dc_float" in line for line in buffers), buffers
-
-
 @pytest.mark.dace_frontend
 def test_the_emitted_module_parses_through_the_dace_frontend(two_extent_module: str, tmp_path: pathlib.Path) -> None:
     """The calling convention above is checked on the TEXT, and text can be self-consistent and

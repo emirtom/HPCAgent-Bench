@@ -252,11 +252,6 @@ def harvest_assign(
     if isinstance(rhs, ast.Call) and isinstance(rhs.func, ast.Attribute) and is_numpy_module(rhs.func.value):
         harvest_np_call(target_id, rhs, rhs.func.attr, shape_table, dtype_table)
         return
-    # ``x.reshape((a, b, c))`` spelled in full is that shape, whatever is known of ``x``.
-    spelled = reshape_spelled_shape(rhs)
-    if spelled is not None and target_id not in shape_table:
-        shape_table[target_id] = spelled
-        return
     if is_scalar_helper_call(rhs, scalar_helpers):
         return
     # Last-ditch: a BinOp / UnaryOp / Compare / BoolOp / Subscript whose operands have known shapes
@@ -272,20 +267,6 @@ def harvest_assign(
         ext = iter_extent_of(rhs, shape_table)
         if ext is not None and not extent_is_scalar(ext):
             shape_table[target_id] = tuple(ast.unparse(e) for e in ext)
-
-
-def reshape_spelled_shape(rhs: ast.expr) -> tuple[str, ...] | None:
-    """The shape of ``x.reshape((a, b, ...))`` / ``x.reshape(a, b, ...)`` when every extent is spelled (no ``-1``)."""
-    if not (isinstance(rhs, ast.Call) and isinstance(rhs.func, ast.Attribute) and rhs.func.attr == "reshape"):
-        return None
-    dims = rhs.args[0].elts if len(rhs.args) == 1 and isinstance(rhs.args[0], (ast.Tuple, ast.List)) else rhs.args
-    if not dims or any(isinstance(d, ast.Starred) for d in dims):
-        return None
-    if any(isinstance(d, ast.UnaryOp) and isinstance(d.op, ast.USub) for d in dims):
-        return None
-    if any(isinstance(d, ast.Constant) and not isinstance(d.value, int) for d in dims):
-        return None
-    return tuple(ast.unparse(d) for d in dims)
 
 
 def harvest_np_call(
