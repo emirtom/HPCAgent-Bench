@@ -82,6 +82,7 @@ def main() -> None:
     translated = reference_language(args.language)
     if args.reference and not distributed:
         reference = args.dest / f"{args.reference}.{languages.LANG_EXT[translated]}"
+        reference.unlink(missing_ok=True)  # a re-stage replaces the read-only copy, as cp -f does
         reference.write_text(generated_reference_source(args.kernel, translated))
         reference.chmod(0o444)
 
