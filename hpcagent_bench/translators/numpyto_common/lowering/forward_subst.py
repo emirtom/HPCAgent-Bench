@@ -126,7 +126,8 @@ class ForwardSubstituteInvariantScalars(ast.NodeTransformer):
     (POLYCC-006), and the OpenMP column loses a scalar ``--parallel`` never privatises (C-001).
     An AST copy keeps the grouping the assign had, so floating point stays bit-identical.
     ``qualifies`` carries the guards; one name is substituted per round against the CURRENT
-    tree, so a chain (``first_i`` -> ``ai`` -> ``rv[...]``) resolves with no read left dangling.
+    tree, so a chain (``first_i`` -> ``ai`` -> ``rv[...]``) resolves with no read left dangling. One
+    :class:`CandidateSearch` census serves every round (:meth:`CandidateSearch.replayed` keeps it current).
     """
 
     __slots__ = ("array_names", "expr_", "name_", "params", "stmt_", "substituted")
@@ -142,14 +143,19 @@ class ForwardSubstituteInvariantScalars(ast.NodeTransformer):
 
     def run(self, fn: ast.FunctionDef) -> "ForwardSubstituteInvariantScalars":
         """Substitute every qualifying scalar in ``fn``; one assign leaves per round."""
+        # One census, kept current across rounds: a round only deletes the assign and replays its RHS at the reads.
+        search = CandidateSearch(fn, self.array_names, self.params)
         for unused in range(sum(1 for n in walk_nodes(fn) if isinstance(n, ast.Assign))):
-            found = self.first_candidate(fn)
+            found = search.next_candidate(fn)
             if found is None:
                 break
-            self.stmt_, self.name_, self.expr_ = found
-            self.substituted[self.name_] = ast.unparse(self.expr_)
+            stmt, name, expr = found
+            self.stmt_, self.name_, self.expr_ = stmt, name, expr
+            self.substituted[name] = ast.unparse(expr)
             self.visit(fn)
-            fill_empty_blocks(fn)
+            search.replayed(name, expr)
+            if search.emptied:
+                fill_empty_blocks(fn)
         self.stmt_, self.name_, self.expr_ = None, "", None
         ast.fix_missing_locations(fn)
         return self
@@ -165,19 +171,23 @@ class ForwardSubstituteInvariantScalars(ast.NodeTransformer):
             return copy.deepcopy(self.expr_)
         return node
 
-    def first_candidate(self, fn: ast.FunctionDef) -> tuple[ast.Assign, str, ast.expr] | None:
-        """The first ``(assign, name, rhs-copy)`` in source order that meets every condition."""
-        search = CandidateSearch(fn, self.array_names, self.params)
-        search.scan(fn.body, 0, (), (), frozenset())
-        return search.found
-
 
 class CandidateSearch:
     """One search of a function for the next scalar :class:`ForwardSubstituteInvariantScalars` may
     replay: the store / for-target / written-base census of ``fn``, the deepest depth each name is
     read at, and the first qualifying assign found."""
 
-    __slots__ = ("array_names", "deepest", "for_targets", "found", "params", "store_counts", "written")
+    __slots__ = (
+        "array_names",
+        "deepest",
+        "emptied",
+        "for_targets",
+        "found",
+        "params",
+        "store_counts",
+        "stored_into",
+        "written",
+    )
 
     def __init__(self, fn: ast.FunctionDef, array_names: set[str], params: set[str]) -> None:
         self.array_names = array_names
@@ -185,6 +195,8 @@ class CandidateSearch:
         self.store_counts: dict[str, int] = {}
         self.for_targets: set[str] = set()
         self.written: set[str] = set()
+        #: Bases of a subscript or attribute store (``a[i] = ...``): written, whatever a deleted assign to ``a`` was.
+        self.stored_into: set[str] = set()
         for node in walk_nodes(fn):
             if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
                 self.store_counts[node.id] = self.store_counts.get(node.id, 0) + 1
@@ -199,6 +211,8 @@ class CandidateSearch:
                     base = base_name(tgt)
                     if base is not None:
                         self.written.add(base)
+                        if not isinstance(tgt, ast.Name):
+                            self.stored_into.add(base)
         # One pass, so the depth test is O(1) and gates the costly liveness walk.
         self.deepest: dict[str, int] = {}
         for expr, depth in stmt_exprs_by_depth(fn.body, 0):
@@ -210,6 +224,26 @@ class CandidateSearch:
                 ):
                     self.deepest[node.id] = depth
         self.found: tuple[ast.Assign, str, ast.expr] | None = None
+        #: Whether deleting the found assign leaves its block empty.
+        self.emptied = False
+
+    def next_candidate(self, fn: ast.FunctionDef) -> tuple[ast.Assign, str, ast.expr] | None:
+        """The first ``(assign, name, rhs-copy)`` in source order that meets every condition, against the census."""
+        self.found, self.emptied = None, False
+        self.scan(fn.body, 0, (), (), frozenset())
+        return self.found
+
+    def replayed(self, name: str, expr: ast.expr) -> None:
+        """Update the census after ``name``'s single assign was deleted and ``expr`` replayed at its reads: ``name`` is
+        neither stored nor read any more, and every name ``expr`` reads is now read as deep as ``name`` was (deeper
+        than the deleted assign, so dropping that read changes no maximum)."""
+        depth = self.deepest.pop(name)
+        del self.store_counts[name]
+        if name not in self.stored_into:
+            self.written.discard(name)
+        for node in walk_nodes(expr):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and depth > self.deepest.get(node.id, -1):
+                self.deepest[node.id] = depth
 
     def qualifies(self, name: str, expr: ast.expr, depth: int, loop_vars: frozenset[str]) -> bool:
         """Scalar, in a loop, single-assigned, read deeper than it is written, small and pure, and
@@ -292,6 +326,7 @@ class CandidateSearch:
         if read_in(name, outside):
             return False
         self.found = (stmt, name, copy.deepcopy(stmt.value))
+        self.emptied = len(stmts) == 1
         return True
 
     def scan_block(
