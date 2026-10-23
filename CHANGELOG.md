@@ -5,12 +5,18 @@
 Cleanup release. Results-database and wire schemas are unchanged: 0.3.0 reads every 0.2.x row. Rows of removed
 columns stay readable and plottable, not runnable.
 
-Pins: dace extended `af543a316`.
+Pins: dace extended `88859f01f`.
 
-### dace extended `baac24733` -> `af543a316`
+### dace extended `baac24733` -> `88859f01f`
 Merges dace main. Each modulo spelling has one meaning (`PyMod`/`FtnModulo` floored, `CMod`/`FtnMod` and a bare
 `%` truncating), and numeric casts work in symbolic expressions; a symbol a state reads before any assignment
 stays free; ExternCall on GPU data passes device pointers in stream order.
+
+Canon CPU performance: a top-level real GEMM runs a split-K / syrk shape plan over OpenBLAS, and a batch of real
+products not known to be large runs LIBXSMM kernels; a library node in a parallel region takes its single-core
+lowering (a blocked in-thread tensor transpose); an in-place accumulation a loop carries becomes a WCR so the loop
+maps; a dead pre-loop fill no longer blocks privatization; gathers run their index axes outermost; custom-lambda
+WCR atomics are a compare-and-swap loop, not one critical section.
 
 ### Removed
 - **Pythran, the ISO-parallel C++ emit and JAX auto-generation**: the Pythran column, the `numpyto_jax` and
