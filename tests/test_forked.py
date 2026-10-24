@@ -458,3 +458,17 @@ def test_a_child_started_beside_another_threads_context_environment_does_not_inh
     res = run_forked(environ_probe, mp_context="fork", timeout=30)
     holder.join()
     assert res.ok and res.result is None
+
+
+def sleep_then_answer() -> int:
+    time.sleep(1.0)
+    return 7
+
+
+def test_a_reference_run_finishes_after_its_request_is_abandoned() -> None:
+    """A reference timing outlives the client that asked for it, so its cached result serves the next request."""
+    abandoned = threading.Event()
+    threading.Timer(0.2, abandoned.set).start()
+    with forked.abandoned_by(abandoned), forked.not_abandoned():
+        r = run_forked(sleep_then_answer, timeout=30)
+    assert r.ok and r.result == 7, r

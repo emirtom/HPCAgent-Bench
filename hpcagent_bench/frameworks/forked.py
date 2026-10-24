@@ -54,6 +54,7 @@ __all__ = [
     "ResultMessage",
     "RunResult",
     "abandoned_by",
+    "not_abandoned",
     "child_environment",
     "child_main",
     "die_with_parent",
@@ -146,6 +147,17 @@ ABANDON_POLL_S = 0.1
 def abandoned_by(event: threading.Event) -> Iterator[None]:
     """Kill every child this thread waits on inside the block once ``event`` is set."""
     token = ABANDONED.set(event)
+    try:
+        yield
+    finally:
+        ABANDONED.reset(token)
+
+
+@contextlib.contextmanager
+def not_abandoned() -> Iterator[None]:
+    """Run every child inside the block to its end even after the caller is abandoned: a reference timing it
+    yields is cached for the next request."""
+    token = ABANDONED.set(None)
     try:
         yield
     finally:
