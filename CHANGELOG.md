@@ -91,6 +91,12 @@ scans; parallel maps with data-dependent inner work run a guided schedule (spgem
   the `+`; the label names both packets.
 - `tsvc_2_s319` declares its accumulation length (`chain_length`), which the CPF determinism check needs.
 - Build and cache directories are excluded from package discovery (an editable install no longer races a build).
+- The judge's forkserver could start while another grading thread had an llvm OpenMP context environment set, map
+  ROCm `libomp`, and fail every later gcc-built grade with `OpenMPRuntimeConflict` (scicomp40 qwen38-c: 160 of 200
+  calls); every child start now takes the context lock.
+- A C or numba reference timing is no longer killed when the agent's request is abandoned: it finishes and is cached
+  for the next grade (was "lost its compiled reference ... ABANDONED").
+- nbody's XL horizon is 10 steps: the fuzzed draws anchor at XL, and 50 steps took numba ~51 s per call.
 
 ## 0.2.1 (2026-10)
 
