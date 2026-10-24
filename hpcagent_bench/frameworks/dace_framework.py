@@ -540,6 +540,7 @@ CLASSIC_CODEGEN: tuple[tuple[tuple[str, ...], str | bool], ...] = (
     (("compiler", "cuda", "implementation"), "legacy"),
     (("compiler", "emit_tree_reductions"), False),
     (("compiler", "cpu", "explicit_copy"), False),
+    (("compiler", "cpu", "codegen_params", "const_scalar_abi"), "by_ref"),
     NEW_GPU_OFFLOADING,
 )
 #: The classic CPU generator and the new GPU one: the knobs the classic CPU generator reads keep
@@ -549,14 +550,18 @@ PARALLEL_CODEGEN: tuple[tuple[tuple[str, ...], str | bool], ...] = (
     (("compiler", "cuda", "implementation"), "experimental"),
     (("compiler", "emit_tree_reductions"), False),
     (("compiler", "cpu", "explicit_copy"), False),
+    (("compiler", "cpu", "codegen_params", "const_scalar_abi"), "by_ref"),
     NEW_GPU_OFFLOADING,
 )
-#: Stated for canon too (the experimental generators ignore them) to keep the key sets identical.
+#: Stated for canon too (the experimental generators ignore them) to keep the key sets identical. A read-only
+#: scalar binds by value: a ``const double&`` may alias the arrays a loop stores to, so it is reloaded every
+#: iteration (fdtd_2d -21%, heat_3d -12%, fv3_dycore -12% on mi300).
 READABLE_CODEGEN: tuple[tuple[tuple[str, ...], str | bool], ...] = (
     (("compiler", "cpu", "implementation"), "experimental_readable"),
     (("compiler", "cuda", "implementation"), "experimental"),
     (("compiler", "emit_tree_reductions"), True),
     (("compiler", "cpu", "explicit_copy"), True),
+    (("compiler", "cpu", "codegen_params", "const_scalar_abi"), "by_value"),
     NEW_GPU_OFFLOADING,
 )
 

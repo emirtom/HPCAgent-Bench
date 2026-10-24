@@ -5,9 +5,9 @@
 Cleanup release. Results-database and wire schemas are unchanged: 0.3.0 reads every 0.2.x row. Rows of removed
 columns stay readable and plottable, not runnable.
 
-Pins: dace extended `9b4781944`.
+Pins: dace extended `5cf6fe0f1`.
 
-### dace extended `baac24733` -> `9b4781944`
+### dace extended `baac24733` -> `5cf6fe0f1`
 Merges dace main. Each modulo spelling has one meaning (`PyMod`/`FtnModulo` floored, `CMod`/`FtnMod` and a bare
 `%` truncating), and numeric casts work in symbolic expressions; a symbol a state reads before any assignment
 stays free; ExternCall on GPU data passes device pointers in stream order.
@@ -25,6 +25,15 @@ parallelizes stores through an index array that facts prove disjoint: a permutat
 of nonnegative values, or a declared data assumption (spgemm_hash 9618 -> 637 ms); exclusive running sums lift to
 scans; parallel maps with data-dependent inner work run a guided schedule (spgemm_hash -> 823 ms, nfa_frontier
 8133 -> 7075 ms); stores into a cumsum read only at its last element are dropped, the loop keeping its order.
+
+Merges dace main's v2.0.0 beta 1 (Python floor division and float round-trip printing). Canon CPU: maps sharing
+outer axes fuse with the inner axes kept as a scratch map, if/else maps over one range merge into one selecting map,
+offset copies of a grid are forwarded to their readers, element-wise producers fuse into GEMV, a sequential WCR
+accumulator stays in a register through nested map exits, and a parallel region hoists after strip-mining
+(channel_flow 9267 -> 3788 ms, nbody 51.4 -> 32.8 s, fv3_dycore 4056 -> 3145 ms vs numba). GPU: a scatter WCR
+privatizes into shared-memory partials per block, and scatter kernels coarsen. The readable CPU codegen binds read-only
+scalars by value (fdtd_2d -21%, heat_3d -12%). `@dace.program(facts=...)` takes the array facts of the new
+`array_facts:` manifest block.
 
 ### Removed
 - **Pythran, the ISO-parallel C++ emit and JAX auto-generation**: the Pythran column, the `numpyto_jax` and
