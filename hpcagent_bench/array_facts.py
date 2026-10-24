@@ -29,7 +29,11 @@ def active(spec: BenchSpec) -> ArrayFactsBlock | None:
 
 def extents(spec: BenchSpec) -> dict[str, str]:
     """The extent expression of every one-dimensional array of ``spec``'s C-ABI binding."""
-    return {arg.name: arg.shape[0] for arg in binding_from_spec(spec).args if arg.kind == "ptr" and len(arg.shape) == 1}
+    return {
+        arg.name: arg.shape[0]
+        for arg in binding_from_spec(spec).args
+        if arg.kind == "ptr" and arg.shape is not None and len(arg.shape) == 1
+    }
 
 
 def named(facts: ArrayFactsBlock) -> list[str]:
@@ -49,7 +53,7 @@ def validate(spec: BenchSpec) -> None:
     facts = spec.array_facts
     if facts is None:
         return
-    arrays = {arg.name: len(arg.shape) for arg in binding_from_spec(spec).args if arg.kind == "ptr"}
+    arrays = {arg.name: len(arg.shape or ()) for arg in binding_from_spec(spec).args if arg.kind == "ptr"}
     outputs = set(spec.output_args)
     sparse = set(spec.sparse_layouts)
 
