@@ -4,7 +4,7 @@
 states them and the dace translation declares them (``@dace.program(facts=...)``); off, neither does."""
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
@@ -78,22 +78,23 @@ def dace_facts(spec: BenchSpec) -> dict[str, Any]:
     facts = active(spec)
     if facts is None:
         return {}
+    import sympy
     from dace import symbolic
 
     sizes = extents(spec)
     result: dict[str, Any] = {}
+    zero = sympy.Integer(0)
     for name, kinds in facts.arrays.items():
-        last = symbolic.pystr_to_symbolic(f"({sizes[name]}) - 1") if name in sizes else None
+        # validate() keeps every array a range fact names one-dimensional, so it has an extent
+        last = cast("sympy.Expr", symbolic.pystr_to_symbolic(f"({sizes[name]}) - 1")) if name in sizes else None
         declared = []
         for kind in kinds:
-            if kind is ArrayFactKind.PERMUTATION:
-                declared.append(symbolic.permutation(0, last))
-            elif kind is ArrayFactKind.INJECTIVE:
+            if kind is ArrayFactKind.PERMUTATION and last is not None:
+                declared.append(symbolic.permutation(zero, last))
+            elif kind is ArrayFactKind.INJECTIVE or kind is ArrayFactKind.PERMUTATION:
                 declared.append(symbolic.DataFact(symbolic.DataFactKind.INJECTIVE))
             elif kind is ArrayFactKind.NONDECREASING:
-                declared.append(
-                    symbolic.DataFact(symbolic.DataFactKind.NONDECREASING, symbolic.pystr_to_symbolic(0), last)
-                )
+                declared.append(symbolic.DataFact(symbolic.DataFactKind.NONDECREASING, zero, last))
             else:
                 declared.append(symbolic.DataFact(symbolic.DataFactKind.NONNEGATIVE))
         result[name] = declared
