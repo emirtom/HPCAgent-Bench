@@ -76,7 +76,13 @@ def test_the_facts_are_active_only_with_the_toggle_on() -> None:
 def test_the_prompt_states_the_facts_as_prose() -> None:
     lines = ["`perm` is nondecreasing", "every entry of `perm` is non-negative"]
     api = prompts.prompt_env().get_template("sections/api.j2")
-    context = {"language": "python", "func_name": "kernel", "input_args": ["perm"], "negative_symbols": [], "language_track": False}
+    context = {
+        "language": "python",
+        "func_name": "kernel",
+        "input_args": ["perm"],
+        "negative_symbols": [],
+        "language_track": False,
+    }
     text = api.render(**context, array_facts=lines)
     assert "- On every call the input arrays satisfy:\n  - `perm` is nondecreasing.\n" in text
     assert "every entry of `perm` is non-negative." in text
