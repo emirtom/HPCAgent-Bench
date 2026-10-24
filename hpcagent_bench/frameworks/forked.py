@@ -278,8 +278,8 @@ def die_with_parent() -> None:
         os._exit(0)
 
 
-#: Serializes :func:`child_environment`: the spawned child copies ``os.environ`` at ``p.start()``, and the
-#: judge runs grades on several threads, so two children's environments must not interleave.
+#: Serializes every child start in :func:`run_forked` with :func:`child_environment`: a child (and a forkserver
+#: started on first use) copies ``os.environ`` at ``p.start()``, and the judge runs grades on several threads.
 CHILD_ENV_LOCK = threading.Lock()
 
 
@@ -322,7 +322,14 @@ def forget_inherited_forkserver() -> None:
     server._forkserver_alive_fd = None
 
 
+def release_inherited_child_env_lock() -> None:
+    """A fresh :data:`CHILD_ENV_LOCK` in a forked child: the parent forks while holding it."""
+    global CHILD_ENV_LOCK  # noqa: PLW0603 -- the inherited copy stays locked forever
+    CHILD_ENV_LOCK = threading.Lock()
+
+
 os.register_at_fork(after_in_child=forget_inherited_forkserver)
+os.register_at_fork(after_in_child=release_inherited_child_env_lock)
 
 
 def process_context(method: str) -> ProcessContext:
@@ -510,7 +517,9 @@ def run_forked[ResultT](
         call_kwargs["progress"] = progress_q
     err_r, err_w = ctx.Pipe(duplex=False)
     p = ctx.Process(target=child_main, args=(fn, args, call_kwargs, q, seal, err_w))
-    with child_environment(env) if env else contextlib.nullcontext():
+    # Every start holds the lock: a fork, or a forkserver started on first use, copies ``os.environ`` too, and
+    # another thread's context environment (an llvm ``LD_LIBRARY_PATH``) would otherwise stick to it.
+    with child_environment(env) if env else CHILD_ENV_LOCK:
         p.start()
     # The parent's copy of the write end goes NOW, so the read end sees EOF as soon as the child is
     # gone rather than blocking on a writer that only this process still holds.
