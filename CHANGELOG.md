@@ -96,6 +96,8 @@ scans; parallel maps with data-dependent inner work run a guided schedule (spgem
   calls); every child start now takes the context lock.
 - A C or numba reference timing is no longer killed when the agent's request is abandoned: it finishes and is cached
   for the next grade (was "lost its compiled reference ... ABANDONED").
+- A DaCe variant that fails verification is rebuilt with scalar libm (no `vecmath.h`/libmvec), no contraction and no
+  reciprocal rewriting; contraction off alone left cloudsc_monolith one element off (libmvec's exp/log/pow).
 - nbody's XL horizon is 10 steps: the fuzzed draws anchor at XL, and 50 steps took numba ~51 s per call.
 
 ## 0.2.1 (2026-10)
