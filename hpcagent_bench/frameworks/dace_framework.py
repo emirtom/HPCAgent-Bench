@@ -10,6 +10,7 @@ import copy
 import importlib
 import os
 import pathlib
+import shlex
 import shutil
 import subprocess
 import time
@@ -81,6 +82,7 @@ __all__ = [
     "READABLE_CODEGEN",
     "SINGLE_STREAM",
     "STRICT_FP_FLAG",
+    "strict_fp_args",
     "DaceFramework",
     "DeviceStagingModule",
     "PipelineContext",
@@ -171,9 +173,30 @@ DACE_FAMILY_ENV = "HPCAGENT_BENCH_DACE_COMPILER_FAMILY"
 #: from the baseline before ``compiler.cpu.args``.
 DACE_SUPPLIED_FLAGS = (bench_flags.OPT_LEVEL, "-fPIC")
 
-#: What a variant that failed verification is rebuilt with, once: no FMA contraction
-#: (:meth:`DaceFramework.strict_fp_or`).
-STRICT_FP_FLAG = "-ffp-contract=off"
+#: What a variant that failed verification is rebuilt with, once: no FMA contraction and no reciprocal rewriting of
+#: divisions (:meth:`DaceFramework.strict_fp_or`).
+STRICT_FP_FLAG = "-ffp-contract=off -fno-reciprocal-math"
+
+
+def strict_fp_args(args: str) -> str:
+    """``args`` rounding as written: the vector libm (libmvec, a few ulp off scalar libm) dropped and
+    :data:`STRICT_FP_FLAG` appended."""
+    tokens = shlex.split(args)
+    kept: list[str] = []
+    skip = False
+    for i, tok in enumerate(tokens):
+        if skip:
+            skip = False
+            continue
+        if tok == "-include" and i + 1 < len(tokens) and tokens[i + 1] == str(bench_flags.VECMATH_H):
+            skip = True
+            continue
+        if tok == "-fveclib=libmvec":
+            if kept and kept[-1] == "-Xarch_host":
+                kept.pop()
+            continue
+        kept.append(tok)
+    return shlex.join([*kept, *shlex.split(STRICT_FP_FLAG)])
 
 
 def pin_host_compiler(family: str | None = None) -> str | None:
@@ -831,7 +854,7 @@ class DaceFramework(Framework):
 
     def optimize(self, program: KernelImpl, bench: Benchmark, bdata: BenchData) -> TimedCompiledSDFG:
         """Build and compile this flavor's pipeline and verify it; a variant that fails verification is
-        rebuilt without FMA contraction (:meth:`strict_fp_or`)."""
+        rebuilt to round as written (:meth:`strict_fp_or`)."""
         # The parsed ``@dace.program`` from :meth:`implementations`, whose SDFG the pipelines deepcopy.
         if not isinstance(program, DaceProgram):
             raise TypeError(f"{self.fname}: optimize needs a parsed @dace.program, got {type(program).__name__}")
@@ -878,7 +901,7 @@ class DaceFramework(Framework):
         bench: Benchmark,
         bdata: BenchData,
     ) -> TimedCompiledSDFG:
-        """``name`` rebuilt without FMA contraction when that verifies, else ``fallback`` (numpy never contracts);
+        """``name`` rebuilt with :func:`strict_fp_args` when that verifies, else ``fallback`` (numpy never contracts);
         only for a variant that failed verification."""
         strict = copy.deepcopy(sdfg)
         # A new name is a new build: the build cache would otherwise hand back the contracted binary.
@@ -890,7 +913,7 @@ class DaceFramework(Framework):
             with contextlib.ExitStack() as stack:
                 for key in keys:
                     stack.enter_context(
-                        dace.config.set_temporary(*key, value=f"{dace.Config.get(*key)} {STRICT_FP_FLAG}")
+                        dace.config.set_temporary(*key, value=strict_fp_args(str(dace.Config.get(*key))))
                     )
                 rebuilt = TimedCompiledSDFG(timed_compile(strict), strict, f"{name}_strict_fp")
         except Exception as exc:  # noqa: BLE001 -- the strict-FP rebuild is optional; the fast build stands
