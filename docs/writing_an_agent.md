@@ -11,7 +11,7 @@ through one of four surfaces. On all four, the judge keeps the hidden inputs and
 | HTTP judge | `/baseline`, `/build`, `/score`, `/submit`, `/profile` (+ `/search` on the cluster router) | [service.py](../hpcagent_bench/harness/service.py), [judge_service.py](../hpcagent_bench/cluster/judge_service.py) |
 | MCP tools (cluster agents) | `score`, `submit`, `profile`, `syntax_check`, opt-in `search`, packet tools | [mcp_server.py](../agent/hpcagent_agent/tools/mcp_server.py) |
 
-A cluster harness other than Claude Code (mini-SWE-agent, OpenHands, the optimas, anthropic and openai runners) is added as in
+A cluster harness other than Claude Code (mini-SWE-agent, the optimas, anthropic and openai runners) is added as in
 [extending/agent-harness.md](extending/agent-harness.md).
 
 ## Python API
@@ -199,7 +199,7 @@ first existing file among `--env-file`, `./.env` and `hpcagent_bench/.env` fills
 - `503 {"cause": "not_provisioned"}`: search is not configured.
 - `502`: this query failed. A different query may still work.
 
-Claude Code's own `WebFetch` and `WebSearch` are in the driver's `--disallowedTools`. The OpenHands, mini-SWE,
+Claude Code's own `WebFetch` and `WebSearch` are in the driver's `--disallowedTools`. The mini-SWE,
 optimas, anthropic and openai runners carry no browsing tool.
 
 ## Harbor mapping

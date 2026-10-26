@@ -1182,7 +1182,7 @@ def test_crowded_category_ticks_alternate_two_lines_and_sparse_ones_do_not(
     ("intervention", "leg", "shape"),
     [
         pytest.param("packets", "C-Terse", palette.packet_marker("caveman"), id="packets"),
-        pytest.param("harness", "OpenHands", palette.harness_marker("openhands"), id="harness"),
+        pytest.param("harness", "mini-SWE-agent", palette.harness_marker("miniswe"), id="harness"),
     ],
 )
 def test_a_per_column_panel_never_asks_the_registry_for_its_pseudo_intervention(

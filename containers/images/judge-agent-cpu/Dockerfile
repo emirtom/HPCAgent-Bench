@@ -394,7 +394,7 @@ RUN set -eux; \
       ln -sf "/opt/harness/node/node_modules/.bin/${cli}" "/usr/local/bin/${cli}"; \
     done
 
-# 6a. The isolated venvs for the Python harnesses (mini-SWE-agent, OpenHands, Optimas, the anthropic and openai
+# 6a. The isolated venvs for the Python harnesses (mini-SWE-agent, Optimas, the anthropic and openai
 # SDK runners), kept off /opt/venv so their deps cannot displace litellm[proxy]==1.94.0. Each venv is `uv sync
 # --package hpcagent-agent --group harness-<name>` from uv.lock: the group's harness plus hpcagent-agent's own
 # dependencies (mcp, pydantic), none of hpcagent-bench's, and the same hook. An agent step binds the submitting
@@ -403,7 +403,7 @@ RUN set -eux; \
 COPY containers/images/lib/package_hook.sh /tmp/package_hook.sh
 RUN set -eux; \
     . /opt/harness/pins.env; \
-    for venv in miniswe openhands optimas anthropic openai; do \
+    for venv in miniswe optimas anthropic openai; do \
       sh /tmp/package_hook.sh /opt/hpcagent-bench /opt/hpcagent-bench-agent/hpcagent_agent "/opt/harness/${venv}" \
         --python "/usr/bin/python${HARNESS_PYTHON}" --package hpcagent-agent --group "harness-${venv}"; \
     done; \
@@ -517,11 +517,10 @@ RUN set -eux; \
     [ "$(node -p "require('/opt/harness/node/package.json').dependencies['@anthropic-ai/claude-code']")" = 2.1.303 ] \
       || { echo "claude-code is not 2.1.303, the version agent_driver's claude settings were checked against" >&2; exit 1; }; \
     /opt/harness/miniswe/bin/python -c 'import yaml, minisweagent.agents.default, minisweagent.environments.local, minisweagent.models.litellm_model'; \
-    /opt/harness/openhands/bin/python -c 'import openhands.sdk.event.conversation_error, openhands.tools.file_editor, openhands.tools.preset.default, openhands.tools.terminal'; \
     /opt/harness/anthropic/bin/python -c 'import anthropic, anthropic.lib.tools, anthropic.lib.tools.mcp, mcp, mcp.client.stdio'; \
     /opt/harness/openai/bin/python -c 'import agents, agents.mcp, agents.models.openai_chatcompletions, agents.run_config, openai, openai.types.shared'; \
     /opt/harness/optimas/bin/python -c 'import agents, agents.exceptions, agents.mcp, agents.models.openai_chatcompletions, agents.run_config, litellm, openai, openai.types.shared, optimas.arch.base, optimas.optim.opro, optimas.wrappers.example'; \
-    for venv in miniswe openhands optimas anthropic openai; do \
+    for venv in miniswe optimas anthropic openai; do \
       "/opt/harness/${venv}/bin/python" -c "import importlib.util; assert importlib.util.find_spec('hpcagent_bench') is None, \
         '/opt/harness/${venv} can import hpcagent_bench: this image is agent-facing and must not'"; \
     done; \

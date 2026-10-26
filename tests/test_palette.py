@@ -249,7 +249,7 @@ def test_every_registered_treatment_wears_its_own_shape_and_none_wears_the_contr
     assert len(shapes) == len(set(map(repr, shapes))), table
     assert palette.CONTROL_MARKER not in shapes
     assert palette.packet_marker("repo") != palette.packet_marker("perf-playbook-cpu")
-    assert palette.harness_marker("openhands") not in [palette.packet_marker(p) for p in palette.hue_order("packets")]
+    assert palette.harness_marker("optimas") not in [palette.packet_marker(p) for p in palette.hue_order("packets")]
 
 
 def test_a_packets_shape_does_not_move_when_a_later_treatment_is_registered() -> None:

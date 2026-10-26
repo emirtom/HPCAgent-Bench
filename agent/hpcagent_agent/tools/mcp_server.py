@@ -18,7 +18,7 @@ from mcp import types
 from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
 
-from hpcagent_agent import mcp_sdk, plugins, submission_mode
+from hpcagent_agent import plugins, submission_mode
 from hpcagent_agent import tools as tool_package
 from hpcagent_agent.tools.registry import Served, Setup, served
 
@@ -142,32 +142,20 @@ def build_server(environ: Mapping[str, str] = os.environ) -> Server:
     async def call(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
         return await anyio.to_thread.run_sync(answer, offered, name, arguments)
 
-    if mcp_sdk.V2:
-        # 2.x: handlers are constructor arguments, called with the request context and the request's params.
-        async def list_tools_v2(context: Any, params: Any) -> types.ListToolsResult:  # noqa: ANN401, ARG001
-            return types.ListToolsResult(tools=tool_definitions(offered))
+    # Handlers are constructor arguments, called with the request context and the request's params.
+    async def list_tools(context: Any, params: Any) -> types.ListToolsResult:  # noqa: ANN401, ARG001
+        return types.ListToolsResult(tools=tool_definitions(offered))
 
-        async def call_tool_v2(context: Any, params: Any) -> types.CallToolResult:  # noqa: ANN401, ARG001
-            return await call(params.name, dict(params.arguments or {}))
+    async def call_tool(context: Any, params: Any) -> types.CallToolResult:  # noqa: ANN401, ARG001
+        return await call(params.name, dict(params.arguments or {}))
 
-        return Server(  # type: ignore[call-arg]  # the 2.x signature; 1.x is the branch below
-            SERVER_NAME,
-            version=version,
-            instructions=instructions,
-            on_list_tools=list_tools_v2,
-            on_call_tool=call_tool_v2,
-        )
-    server: Server = Server(SERVER_NAME, version=version, instructions=instructions)
-
-    @server.list_tools()  # type: ignore[attr-defined]  # the 1.x decorators
-    async def list_tools() -> list[types.Tool]:
-        return tool_definitions(offered)
-
-    @server.call_tool(validate_input=False)  # type: ignore[attr-defined]  # the 1.x decorators
-    async def call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
-        return await call(name, arguments)
-
-    return server
+    return Server(
+        SERVER_NAME,
+        version=version,
+        instructions=instructions,
+        on_list_tools=list_tools,
+        on_call_tool=call_tool,
+    )
 
 
 async def serve_stdio(server: Server) -> None:

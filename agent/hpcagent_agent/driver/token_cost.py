@@ -121,7 +121,7 @@ PROVIDER_CACHE_DISCOUNT: float = 0.1
 INPUT_FIELDS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
 
 
-#: What a runner harness (mini-SWE, OpenHands) records instead of a claude transcript: one
+#: What a runner harness (mini-SWE, the native runners) records instead of a claude transcript: one
 #: JSON line per model call, ``{"input", "cached_input", "output", "reasoning"}`` (agent/hpcagent_agent/driver/harnesses.py).
 USAGE_NAME = "usage.jsonl"
 

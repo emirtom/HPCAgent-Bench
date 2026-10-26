@@ -440,7 +440,7 @@ def test_a_worker_dir_without_a_transcript_has_no_token_total(token_cost: Module
 def test_a_runner_harnesss_totals_come_from_its_final_attempts_usage_file(
     token_cost: ModuleType, tmp_path: pathlib.Path
 ) -> None:
-    """A non-Claude harness (mini-SWE, OpenHands) leaves ``usage.jsonl`` per attempt, moved
+    """A non-Claude harness (mini-SWE, the native runners) leaves ``usage.jsonl`` per attempt, moved
     aside on a crash the same way ``claude.log`` is (harnesses.py's ``records``), and is read under
     the same rule: the final attempt is the task, the earlier ones are crashed spend."""
     (tmp_path / "usage.attempt1.jsonl").write_text(usage_line(300, 30) + "\n", encoding="utf-8")

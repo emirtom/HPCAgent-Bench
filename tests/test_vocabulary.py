@@ -30,7 +30,6 @@ PINNED_OPTIMIZERS = (
 PINNED_HARNESSES = (
     "claude",
     "miniswe",
-    "openhands",
     "optimas",
     "anthropic",
     "openai",

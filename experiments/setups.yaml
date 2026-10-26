@@ -161,7 +161,7 @@ smoke:
     HPCAGENT_BENCH_FUZZ_ANCHOR: S
     HPCAGENT_BENCH_FUZZ_HIDDEN_CORRECTNESS_PRESETS: '[]'
 
-# The harness comparison (HARNESSES="claude miniswe openhands"): one serving base and one
+# The harness comparison (HARNESSES="claude miniswe"): one serving base and one
 # judge sizing, so the harness is the only variable.
 harness:
   extends: llrbase-c

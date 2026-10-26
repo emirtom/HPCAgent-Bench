@@ -1,7 +1,7 @@
 # Adding an agentic framework (agent harness)
 
 An agent harness runs the model's tool loop for one cluster agent, next to `claude`, `miniswe`,
-`openhands`, `optimas`, `anthropic` and `openai` in `agent/hpcagent_agent/driver/agent_driver.py`. The in-process `Agent` API is the other
+`optimas`, `anthropic` and `openai` in `agent/hpcagent_agent/driver/agent_driver.py`. The in-process `Agent` API is the other
 route: [writing_an_agent.md](../writing_an_agent.md). Run commands from the repo root.
 
 | File | Change |
@@ -100,23 +100,22 @@ turn off the framework's own step, cost and iteration limits.
 
 ```python
 # agent/hpcagent_agent/driver/harnesses.py
-HARNESSES = (CLAUDE, "miniswe", "openhands", "optimas", "anthropic", "openai", "myagent")
+HARNESSES = (CLAUDE, "miniswe", "optimas", "anthropic", "openai", "myagent")
 RUNNERS = {..., "myagent": runner("myagent", myagent_command, miniswe_env)}
 ```
 
 Write `myagent_command` like `miniswe_command` and add `/opt/harness/myagent/bin/python` to
-`HARNESS_INTERPRETER`. Pick the env function by tool access: `runner_env`, `miniswe_env`
-(`hpcagent-bench-tool` first on `PATH`) or `openhands_env` (`HOME` in the workdir). A name in
+`HARNESS_INTERPRETER`. Pick the env function by tool access: `runner_env` or `miniswe_env`
+(`hpcagent-bench-tool` first on `PATH`). A name in
 `HARNESSES` but not `RUNNERS` raises `KeyError` in every worker.
 
 Tool access and prompt:
 
 - **Shell** (`miniswe`): `hpcagent-bench-tool <tool> '<json>'`; exit 0 result, 1 `ok: false`, 2 usage
   error. Prompt `prompt-cli.md`.
-- **MCP** (`openhands`, `optimas`, `anthropic`, `openai`): `W/mcp.json` starts `tools/mcp_server.py`;
+- **MCP** (`optimas`, `anthropic`, `openai`): `W/mcp.json` starts `tools/mcp_server.py`;
   overlay the entry's `env` on the full environment and set `cwd` to the workdir, as
-  `runner_common.mcp_servers` does. Prompt `prompt-openhands.md`; `optimas`, `anthropic` and `openai` add
-  `runner_common.SHELL_TOOL` and read `prompt-native.md`.
+  `runner_common.mcp_servers` does. They add `runner_common.SHELL_TOOL` and read `prompt-native.md`.
 
 The setup's `.env` sets `HARNESS=myagent`; the submit script passes `myagent` as argument 8 of
 `record_identity`, which writes `HPCAGENT_BENCH_RECORD_HARNESS` (the `setups.harness` column). The

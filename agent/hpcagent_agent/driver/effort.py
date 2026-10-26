@@ -13,8 +13,8 @@ first, empty for a model with no ladder at all), and the POLICY is experiment-wi
 rung, otherwise no field at all. Spelling a rung per model is how oss120b and qwen38 came to be
 compared at rungs nobody had written down together.
 
-A CLIENT can accept fewer rungs than the server does -- ``openhands.sdk.LLM.reasoning_effort`` is a
-Literal, and an unknown value fails validation before the episode starts -- so :func:`for_client`
+A CLIENT can accept fewer rungs than the server does -- an SDK that types the field as a Literal fails
+validation on an unknown value before the episode starts -- so :func:`for_client`
 resolves over the ladder the client can actually spell. The rung that was sent is recorded in
 ``harness-end.json``, because a clamp is a difference between setups and has to be visible in the data.
 

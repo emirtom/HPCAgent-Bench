@@ -392,7 +392,7 @@ Every package added to a Dockerfile gets a probe that uses it (compile, import, 
 
 Both judge-agent images install the harnesses from `agent/harness/`: `node/package.json` +
 `package-lock.json` (claude-code 2.1.303), `pins.env` (uv, node and their per-architecture sha256),
-and the `harness-{miniswe,openhands,optimas,anthropic,openai}` groups of `agent/pyproject.toml` (one venv each under
+and the `harness-{miniswe,optimas,anthropic,openai}` groups of `agent/pyproject.toml` (one venv each under
 `/opt/harness/`).
 To bump one, edit the pin (for the npm lock, then run `agent/harness/freeze.sh`), run
 `tests/test_harness_pins.py`, rebuild.

@@ -135,7 +135,7 @@ cpu = ["hpcagent_bench[dev]", "torch", "jax", "triton"]
 # and a cp311 and cp312 plugin.
 amdgpu = [
     "hpcagent_bench[dev]",
-    "torch ; platform_machine == 'x86_64' and python_version < '3.14'",
+    "torch ; platform_machine == 'x86_64'",
     "triton ; platform_machine == 'x86_64' and python_version < '3.14'",
     "jax ; platform_machine == 'x86_64' and python_version == '3.12'",
     "jaxlib ; platform_machine == 'x86_64' and python_version == '3.12'",
@@ -173,7 +173,7 @@ dev = [
 # dependencies. Each is a stack that cannot share one resolution with the hardware extras.
 [dependency-groups]
 # The judge-agent images' LLM proxy the setups talk through; the images install it after their hardware
-# extra. 1.106 is the first litellm whose proxy takes mcp 2.x (hpcagent_agent.mcp_sdk). litellm's proxy stack
+# extra. 1.106 is the first litellm whose proxy takes mcp 2.x. litellm's proxy stack
 # pins rich<14, so harbor>=0.23 never shares its environment.
 judge-proxy = [
     "litellm[proxy]==1.106.4",
@@ -204,7 +204,8 @@ relayout = { git = "https://github.com/ThrudPrimrose/relayout.git", rev = "2718b
 hpcagent-agent = { workspace = true }
 torch = [
     { index = "pytorch-cpu", extra = "cpu" },
-    { index = "rocm-radeon", extra = "amdgpu" },
+    # AMD builds no CPython 3.14 torch; a transitive torch there (accelerate's) takes PyPI's.
+    { index = "rocm-radeon", extra = "amdgpu", marker = "python_version < '3.14'" },
     { index = "pytorch-cuda", extra = "nvgpu" },
 ]
 triton = [{ index = "rocm-radeon", extra = "amdgpu" }]
@@ -239,14 +240,13 @@ environments = ["sys_platform == 'linux' and python_full_version < '3.15'"]
 # The bench's dace pin wins over any a plugin's own pyproject names, so a plugin grades on the same dace.
 override-dependencies = ["dace @ git+https://github.com/spcl/dace.git@5cf6fe0f154c98982c7f24d1d00425f09f7c8c81"]
 # One environment per framework set, and each group is its own venv (litellm's judge-proxy stack needs
-# rich<14; harbor and the OpenHands tools need rich>=14).
+# rich<14; harbor needs rich>=14).
 conflicts = [
     [{ extra = "cpu" }, { extra = "amdgpu" }, { extra = "nvgpu" }],
     [
         { group = "judge-proxy" },
         { group = "harbor" },
         { package = "hpcagent-agent", group = "harness-miniswe" },
-        { package = "hpcagent-agent", group = "harness-openhands" },
         { package = "hpcagent-agent", group = "harness-anthropic" },
         { package = "hpcagent-agent", group = "harness-openai" },
         { package = "hpcagent-agent", group = "harness-optimas" },

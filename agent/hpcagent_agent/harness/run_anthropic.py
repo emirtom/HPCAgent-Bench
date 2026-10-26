@@ -17,7 +17,6 @@ import sys
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from hpcagent_agent import mcp_sdk
 from hpcagent_agent.harness import runner_common, subagents
 
 __all__ = [
@@ -107,9 +106,7 @@ async def open_tools(
     tools: dict[str, Any] = {}
     for server in servers.values():
         read, write = await stack.enter_async_context(stdio_client(StdioServerParameters(**server)))
-        session = await stack.enter_async_context(
-            ClientSession(read, write, read_timeout_seconds=mcp_sdk.read_timeout(wait))  # type: ignore[arg-type]  # float on 2.x, timedelta on 1.x
-        )
+        session = await stack.enter_async_context(ClientSession(read, write, read_timeout_seconds=wait))
         await session.initialize()
         for tool in (await session.list_tools()).tools:
             runnable = async_mcp_tool(tool, session)
