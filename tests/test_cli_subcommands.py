@@ -273,12 +273,17 @@ def test_tasks_kernels_keeps_a_plain_kernel_name_and_refuses_an_unknown_token() 
 
 
 def test_a_framework_alias_runs_and_records_under_its_column(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``-f c`` ran the ``cc`` column but recorded its rows as ``c``, which the canon DB has no entry for."""
+    """``-f c`` ran the ``cc`` column but recorded its rows as ``c``, which the canon DB has no entry for; and
+    ``--skip-existing`` looked up done kernels under ``c``, so a resumed sweep re-ran everything."""
     from hpcagent_bench.support.collect import sweep
 
     seen: list[list[str]] = []
+    looked_up: list[str] = []
     monkeypatch.setattr(
         sweep, "run_forked", lambda fn, bench, names, *a, **k: seen.append(names) or types.SimpleNamespace(ok=True)
     )
     sweep.run_framework_sweep("gemm", "c", Preset.S, False, 1, 60, True, None)
-    assert seen == [["cc"]]
+    # every kernel already recorded: the resumed sweep runs nothing, having looked them up under the column
+    monkeypatch.setattr(sweep, "filter_out_completed_benchmarks", lambda canon, name, *a: looked_up.append(name) or [])
+    sweep.run_framework_sweep("gemm", "c", Preset.S, False, 1, 60, True, None, skip_existing=True, canon=object())
+    assert seen == [["cc"]] and looked_up == ["cc"]
