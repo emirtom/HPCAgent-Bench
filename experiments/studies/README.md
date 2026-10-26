@@ -26,6 +26,7 @@ mi200 (`--system beverin-mi200`). Every other model runs on mi300a.
 | Run-to-Run Reliability | `repeat5` (5 gitscicomp10 kernels) | CPU C | none: run-to-run spread | multi | 20 | [repeat5.md](repeat5.md) |
 | Sampling Temperature | `temperature3` (3) | CPU C | served temperature: default, 0, 1.5 | single | 20 per temperature | [temperature3.md](temperature3.md) |
 | GH200 Variance Pilot | `gh200pilot2` (2 temperature3 kernels) | GH200 Grace CPU C | none: temperature3 t0 on GH200; Apertus also with re-prompts | single | 20 | [gh200pilot2.md](gh200pilot2.md) |
+| NestForge Loop Moves@14 (no experiment yet) | `nestmoves14` (14) | GH200 CPU, GPU | NestForge plugin moves vs NestForge's default stage 2 | - | - | [nestmoves14.md](nestmoves14.md) |
 
 The submission modes (multi, single, blind) and the prompt files that state them are in
 [docs/prompts.md](../../docs/prompts.md#submission-modes). The corpus holds 724 kernels (262
