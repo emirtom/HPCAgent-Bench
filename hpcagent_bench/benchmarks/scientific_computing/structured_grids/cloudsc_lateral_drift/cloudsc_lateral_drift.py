@@ -26,6 +26,7 @@ def initialize(NLEV, KLON, NCLDTOP, datatype=np.float64, rng: Optional[np.random
     pfplsx = np.zeros((NLEV + 1, KLON))  # rain flux, zero above the cloud top
     cap = rng.uniform(1e-6, 2e-4, size=(NLEV + 1, KLON))  # lateral limiter
     east = (rng.uniform(size=NLEV + 1) < 0.5).astype(np.int32)  # drift direction per level
-    z = np.zeros((NLEV + 1, KLON))
+    # Four separate buffers: one array returned four times would alias flx, outE, outW and out.
+    flx, out_e, out_w, out = (np.zeros((NLEV + 1, KLON), dtype=datatype) for _ in range(4))
     f = lambda a: np.ascontiguousarray(a, dtype=datatype)  # noqa: E731
-    return (f(pap), f(paph), f(ztp1), f(zqr), f(pfsnow), f(pfplsx), f(z), f(z), f(z), f(z), f(cap), east)
+    return (f(pap), f(paph), f(ztp1), f(zqr), f(pfsnow), f(pfplsx), flx, out_e, out_w, out, f(cap), east)
