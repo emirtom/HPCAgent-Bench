@@ -592,9 +592,12 @@ AGENT_START_CONCURRENCY = int(os.environ.get("AGENT_START_CONCURRENCY", "8"))
 #: not a crash: relaunching it would grant a second budget its peers never had. A claude agent resumes its own session
 #: in its own workspace (``Harness.resume_point``); only one with nothing to resume from starts over.
 AGENT_CRASH_ATTEMPTS = int(os.environ.get("AGENT_CRASH_ATTEMPTS", "3"))
+#: Most crashes are a reply that outgrew the reply cap inside one tool call (a whole file in one heredoc), which the
+#: server ends without a stop reason; a resume told only "the connection dropped" repeats the same call.
 CRASH_RESUME_PROMPT = (
-    "The connection to the model dropped and your last reply was lost. Your files and history are intact. "
-    "Continue the task from where you were; do not ask for confirmation, no one will answer."
+    "Your last reply was lost before it finished: the connection dropped or the reply grew past the output limit. "
+    "Your files and history are intact. Continue the task from where you were, and write a large file in several "
+    "smaller steps rather than one command. Do not ask for confirmation, no one will answer."
 )
 
 #: Attempts to get an agent's MCP server connected: without it the agent silently runs with no score/submit tools.
