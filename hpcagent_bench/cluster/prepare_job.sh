@@ -232,7 +232,7 @@ if [[ "${CHECK_ONLY:-0}" != 1 ]]; then
     container_step env HPCAGENT_BENCH_REFERENCES_GENERATED_CACHE_DIR="${GEN_CACHE}" \
         bash -c 'exec "${HPCAGENT_BENCH_IMAGE_PYTHON}" - "$@"' _ "${PROBLEMS}" "${LANG_}" <<'PY'
 import pathlib, sys
-from hpcagent_bench.categories import Language
+from hpcagent_bench.cluster.stage_signature import reference_language
 from hpcagent_bench.harness import agent
 from hpcagent_bench.problem_file import read_lines
 
@@ -241,7 +241,8 @@ kernels = sorted({problem.kernel for problem in read_lines(pathlib.Path(problems
 hit = miss = fail = 0
 for k in kernels:
     try:
-        language = Language.parse(spelled)
+        # A GPU or python-delivered setup starts from the C reference: warm that one.
+        language = reference_language(spelled)
         # A hit costs a stat and a read; only a miss pays the emit. Nothing here forces a rebuild.
         before = agent.generated_cache_root()
         # The memo is _reference_source's; emit_reference_source is not lru_cached, and calling
@@ -262,7 +263,7 @@ for k in kernels:
         # A kernel with no lowering for this language is not fatal: the setup simply has no repo
         # task for it, exactly as materialize_shared reports.
         fail += 1
-        print(f"  no {spelled} lowering for {k}: {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(f"  no {language.text} lowering for {k}: {type(exc).__name__}: {exc}", file=sys.stderr)
 print(f"  {hit} cached, {miss} emitted, {fail} unavailable")
 PY
 fi
