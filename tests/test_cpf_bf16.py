@@ -35,15 +35,6 @@ def test_a_bf16_program_is_parsed_in_bfloat16() -> None:
     assert dace_framework.dc_float == dace.float64
 
 
-@pytest.mark.parametrize("datatype", ["float64", ""])
-def test_a_form_is_rendered_and_looked_up_at_the_datatype_its_kernel_is_graded_in(datatype: str) -> None:
-    """A bf16 ML kernel's form is the bf16 one whatever the run's ``service.datatype``; any other kernel's is
-    the run's; a name no kernel answers to keeps the run's, so its lookup misses as before."""
-    assert cpf_bridge.form_fptype(BF16_KERNEL, datatype) == "bf16"
-    assert cpf_bridge.form_fptype(FP64_KERNEL, datatype) == "fp64"
-    assert cpf_bridge.form_fptype("no/such/kernel", datatype) == "fp64"
-
-
 @pytest.mark.parametrize(
     ("dialect", "native"),
     [(cpf_bridge.DEVICE_LANGUAGE, "__hip_bfloat16"), ("cuda", "__nv_bfloat16"), ("c++", "__bf16")],

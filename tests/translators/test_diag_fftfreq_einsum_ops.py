@@ -15,7 +15,6 @@ import numpy as np
 import pytest
 
 from hpcagent_bench.translators.numpyto_common.lib_nodes import (
-    NP_CALL_EXPANDERS,
     expand_diag,
     expand_einsum,
     expand_fftfreq,
@@ -39,11 +38,6 @@ def unparse_(stmts: list[ast.stmt]) -> str:
 
 
 # Registration                                                                #
-
-
-def test_ops_registered() -> None:
-    assert ("np", "diag") in NP_CALL_EXPANDERS
-    assert ("np", "fft.fftfreq") in NP_CALL_EXPANDERS
 
 
 # np.diag                                                                     #

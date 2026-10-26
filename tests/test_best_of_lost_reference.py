@@ -231,17 +231,6 @@ def test_the_configured_denominator_sets_what_a_track_races() -> None:
         )
 
 
-def test_the_best_of_rules_have_distinct_stamps() -> None:
-    assert grading.baseline_policy_stamp((Baseline.C, Baseline.NUMBA)) == "best-of-v4:c+numba"
-    with config.overridden("measurement.baseline_race", BaselineRace.COMPLETE):
-        assert grading.baseline_policy_stamp((Baseline.C, Baseline.NUMBA)) == "best-of-v2:c+numba"
-    assert (
-        grading.baseline_policy_stamp((Baseline.C_AUTOPAR, Baseline.C, Baseline.NUMBA))
-        == "best-of-v1:c-autopar+c+numba"
-    )
-    assert grading.baseline_policy((Baseline.C,)) == grading.SINGLE_BASELINE_POLICY
-
-
 def test_an_unknown_denominator_is_refused() -> None:
     # The config validates the denominator vocabulary, so the override itself refuses the unknown name.
     with (

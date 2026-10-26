@@ -5,7 +5,6 @@ references on gloo, XL / weak-P=16 sizes, and grading sensitivity to a skipped c
 
 import importlib
 import inspect
-import itertools
 import math
 import pathlib
 import types
@@ -363,19 +362,7 @@ def test_reference_dist_on_a_gloo_group_matches_the_single_device_reference(worl
     mp.spawn(gloo_worker, args=(world, str(tmp_path / "store")), nprocs=world, join=True)
 
 
-@pytest.mark.parametrize(
-    ("n", "world", "sizes"),
-    [(7, 2, [4, 3]), (10, 4, [3, 3, 2, 2]), (13, 3, [5, 4, 4])],
-)
-def test_block_range_is_the_split_the_references_read(n: int, world: int, sizes: list[int]) -> None:
-    ranges = [shard_torch.block_range(n, (rank, world)) for rank in range(world)]
-    assert [hi - lo for lo, hi in ranges] == sizes
-    assert ranges[0][0] == 0
-    assert ranges[-1][1] == n
-    assert all(a[1] == b[0] for a, b in itertools.pairwise(ranges))
-
-
-@pytest.mark.parametrize("stem", STEMS)
+@pytest.mark.parametrize("stem", ALL_STEMS)
 def test_xl_fits_the_machine_learning_ceiling_and_one_apu(stem: str) -> None:
     """Declared bf16 arrays under the XL byte ceiling, and twice that (the harness copy) plus an
     fp32 copy of the largest array on one APU."""

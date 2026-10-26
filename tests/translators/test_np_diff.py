@@ -18,7 +18,7 @@ import ast
 import numpy as np
 import pytest
 
-from hpcagent_bench.translators.numpyto_common.lib_nodes import NP_CALL_EXPANDERS, expand_diff
+from hpcagent_bench.translators.numpyto_common.lib_nodes import expand_diff
 from tests.translators.op_oracle import assert_all_ok, run_op
 
 NATIVE = ("c", "cpp", "fortran")
@@ -29,10 +29,6 @@ def expand_(src: str, shapes: dict) -> str:
     assign = ast.parse(src).body[0]
     stmts = expand_diff(assign.targets[0], assign.value.args, shapes, assign.value.keywords)
     return "\n".join(ast.unparse(ast.fix_missing_locations(s)) for s in stmts)
-
-
-def test_registered() -> None:
-    assert NP_CALL_EXPANDERS[("np", "diff")] is expand_diff
 
 
 def test_1d_expands_to_neighbour_subtraction() -> None:

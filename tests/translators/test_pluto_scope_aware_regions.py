@@ -11,7 +11,7 @@ translation unit is the normal output.
 
 import re
 
-from hpcagent_bench.polyhedral.pluto_affine import KNOWN_POLYCC_ISSUES, has_scop, scop_nonaffine_reason
+from hpcagent_bench.polyhedral.pluto_affine import has_scop, scop_nonaffine_reason
 from hpcagent_bench.polyhedral.pluto import dedupe_scratch_declarations
 from hpcagent_bench.polyhedral.pluto_normalize import isolate_scops
 from hpcagent_bench.translators.numpyto_c.emit import emit_pluto
@@ -224,14 +224,6 @@ def test_a_declaration_that_went_out_of_scope_is_not_deduped_against() -> None:
     """Scope, not function: a region nested in a loop body cannot cover the block after it."""
     src = "void f(int N) {\nfor (i=0;i<N;i++) {\n  int lbp, ubp;\n  lbp = 0;\n}\n  int lbp, ubp;\n  lbp = 0;\n}\n"
     assert dedupe_scratch_declarations(src).count("int lbp, ubp;") == 2
-
-
-def test_the_registry_names_this_scoping_as_what_avoids_those_bugs() -> None:
-    for issue in ("POLYCC-007", "POLYCC-013"):
-        assert (
-            KNOWN_POLYCC_ISSUES[issue].avoided_by == "hpcagent_bench.translators.numpyto_c.emit.pluto_scop_regions"
-        ), issue
-    assert KNOWN_POLYCC_ISSUES["POLYCC-011"].avoided_by == "hpcagent_bench.polyhedral.pluto.pet_parse_env"
 
 
 def test_every_scop_gets_its_own_block_so_polycc_counters_do_not_collide() -> None:

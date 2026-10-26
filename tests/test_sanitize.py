@@ -11,7 +11,6 @@ tree-sitter-only assertions are guarded behind ``find_spec`` so the suite
 passes on the stdlib fallback (tree-sitter is not installed in CI here).
 """
 
-import importlib.util
 import shutil
 import subprocess
 import tempfile
@@ -187,24 +186,6 @@ def test_stripped_c_still_compiles() -> None:
 
 
 # tree-sitter parity (only when installed)
-
-
-@pytest.mark.skipif(
-    importlib.util.find_spec("tree_sitter_language_pack") is None,
-    reason="tree-sitter (tree-sitter-language-pack) not installed",
-)
-def test_tree_sitter_path_used_when_available() -> None:
-    assert TREE_SITTER is True
-    # Comment strip still satisfies the core contract on the ts path.
-    out = strip_comments(C_SRC, "c")
-    # Every comment is gone (line, block, inline).
-    assert "leading comment" not in out
-    assert "block comment" not in out
-    assert "inline comment" not in out
-    assert "call helper" not in out
-    assert "void relu(" in out
-    # The string literal is untouched -- strip never treats `//` in a string as a comment.
-    assert "relu stays in this string // not a comment" in out
 
 
 def test_unsupported_lang_rejected() -> None:

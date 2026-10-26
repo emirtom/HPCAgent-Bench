@@ -51,7 +51,6 @@ __all__ = [
     "ARG_ENTRY_KEYS",
     "ARRAY_ENTRY_KEYS",
     "ARRAY_ONLY_KEYS",
-    "BARE_LEVEL",
     "COMPREHENSION_NODES",
     "CONFIG_SELECTS",
     "CPP_KEYWORDS",
@@ -132,7 +131,6 @@ __all__ = [
     "resolve_preset",
     "scale_axes_of",
     "scenarios_without_perturbation",
-    "select_short_names",
     "selector_slug",
     "shape_dims",
     "shape_identifiers",
@@ -2201,15 +2199,3 @@ def validate_kernel(spec: BenchSpec) -> list[str]:
                     "rewrite to a fresh symbol"
                 )
     return problems
-
-
-BARE_LEVEL = re.compile(r"l(?:vl|evel)?_?(\d)$", re.IGNORECASE)
-
-
-def select_short_names(selector: str) -> list[str]:
-    """Kernel names matched by ``selector`` (the :meth:`KernelRegistry.select` grammar, plus a bare ``lvl2`` and
-    ``@lvl_1``)."""
-    sel = selector.strip()
-    bare = BARE_LEVEL.fullmatch(sel)
-    sel = f"all@lvl{bare.group(1)}" if bare else re.sub(r"@l(?:vl|evel)?_?(\d)", r"@lvl\1", sel, flags=re.IGNORECASE)
-    return KERNELS.select(sel)

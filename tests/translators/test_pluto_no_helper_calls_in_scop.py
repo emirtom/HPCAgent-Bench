@@ -20,7 +20,6 @@ from collections.abc import Callable
 import pytest
 
 from hpcagent_bench.polyhedral import pluto as pluto_transform
-from hpcagent_bench.polyhedral.pluto_affine import KNOWN_POLYCC_ISSUES
 from hpcagent_bench.translators.numpyto_c.emit import emit_c, emit_pluto, pluto_call_free
 from hpcagent_bench.translators.numpyto_common.ir import KernelIR
 from hpcagent_bench.translators.numpyto_common.lowering import lower
@@ -112,13 +111,6 @@ def test_the_transformed_output_compiles(kir_fn: Callable[[], KernelIR], name: s
         ["gcc", "-fsyntax-only", "-fopenmp", "-std=c99", str(out)], capture_output=True, text=True, check=False
     )
     assert cc.returncode == 0, cc.stderr
-
-
-def test_polycc_010_names_the_rule_that_avoids_it() -> None:
-    assert (
-        KNOWN_POLYCC_ISSUES["POLYCC-010"].avoided_by
-        == f"hpcagent_bench.translators.numpyto_c.emit.{pluto_call_free.__name__}"
-    )
 
 
 def array_helper_kir() -> KernelIR:

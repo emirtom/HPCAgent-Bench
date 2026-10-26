@@ -4,16 +4,14 @@
 
 A distributed run cannot share one SQLite file: WAL needs a ``-shm`` mapping that Lustre/NFS do not
 provide, and rollback-journal locking over them is unreliable. Each rank therefore writes its own
-persistent shard and the shards are merged afterwards by natural key (:func:`results_db.merge`) --
-on demand, by :func:`recording.ensure_aggregated`, so no caller has to remember an aggregation step.
+persistent shard and the shards are merged afterwards by natural key (:func:`results_db.merge`, through
+:func:`recording.aggregate`).
 """
 
 import contextlib
-import os
 import pathlib
 import sqlite3
 import tempfile
-import time
 
 import pytest
 
@@ -203,33 +201,9 @@ def test_aggregate_carries_the_sources_inside_the_db(tmp_path: pathlib.Path) -> 
     assert not list(tmp_path.glob("*_prompts"))
 
 
-def test_ensure_aggregated_builds_when_the_aggregate_is_missing(tmp_path: pathlib.Path) -> None:
-    base = str(tmp_path / "hpcagent_bench.db")
-    seed_shard(recording.shard_db_path(0, base), run="r0", kernels=["gemm"])
-    assert not pathlib.Path(base).exists()
-
-    assert recording.ensure_aggregated(base) == base
-    assert len(submissions(base)) == 1
-
-
-def test_ensure_aggregated_rebuilds_when_a_shard_is_newer(tmp_path: pathlib.Path) -> None:
-    """A shard that landed after the last merge must not be read through a stale aggregate."""
-    base = str(tmp_path / "hpcagent_bench.db")
-    seed_shard(recording.shard_db_path(0, base), run="r0", kernels=["gemm"])
-    recording.ensure_aggregated(base)
-    assert len(submissions(base)) == 1
-
-    late = recording.shard_db_path(1, base)
-    seed_shard(late, run="r1", kernels=["spmv"])
-    os.utime(late, (time.time() + 10, time.time() + 10))
-
-    recording.ensure_aggregated(base)
-    assert len(submissions(base)) == 2
-
-
 def test_aggregate_cut_short_by_a_corrupt_shard_leaves_no_partial_aggregate(tmp_path: pathlib.Path) -> None:
     """The merge commits once per shard: built in place, a failure on shard 1 left shard 0's rows as an
-    aggregate newer than every shard, which :func:`recording.ensure_aggregated` then served as current."""
+    aggregate newer than every shard, which a reader then took as current."""
     base = str(tmp_path / "hpcagent_bench.db")
     seed_shard(recording.shard_db_path(0, base), run="r0", kernels=["gemm"])
     pathlib.Path(recording.shard_db_path(1, base)).write_bytes(b"truncated by an OOM-killed rank")
@@ -272,16 +246,6 @@ def test_merge_results_without_shards_still_records_the_episodes(tmp_path: pathl
 
     with contextlib.closing(sqlite3.connect(out)) as conn:
         assert conn.execute("SELECT kernel, result, turns FROM episodes").fetchall() == [("gemm", "timeout", 10)]
-
-
-def test_ensure_aggregated_is_a_noop_without_shards(tmp_path: pathlib.Path) -> None:
-    """A single-writer run keeps working untouched -- no aggregate is invented for it."""
-    base = str(tmp_path / "hpcagent_bench.db")
-    seed_shard(base, run="solo", kernels=["gemm"])
-    before = pathlib.Path(base).stat().st_mtime
-    assert recording.ensure_aggregated(base) == base
-    assert pathlib.Path(base).stat().st_mtime == before
-    assert len(submissions(base)) == 1
 
 
 def test_a_single_writer_run_still_writes_a_shard(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:

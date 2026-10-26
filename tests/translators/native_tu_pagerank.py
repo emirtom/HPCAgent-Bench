@@ -1,6 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Standalone-TU e2e test for the pagerank kernel (graph-traversal dwarf).
+"""Standalone-TU inputs for the pagerank kernel (graph-traversal dwarf).
 
 The emitted kernel is compiled into a SINGLE translation unit with a self-checking
 driver that embeds the transition matrix (full repr precision) and the
@@ -11,7 +11,6 @@ mat-vec (hoisted, no read/write aliasing on ``rank``) end to end.
 
 import importlib.util
 import sys
-import tempfile
 
 import numpy as np
 
@@ -19,6 +18,7 @@ from tests.translators import native_tu as tu
 
 DIR = tu.REPO / "hpcagent_bench" / "benchmarks" / "scientific_computing" / "graph_traversal" / "pagerank"
 NUMPY_PY = DIR / "pagerank_numpy.py"
+KERNEL = "pagerank"
 
 N = 16
 
@@ -96,27 +96,3 @@ program test_pagerank
     end do
 end program test_pagerank
 """
-
-
-@tu.have_gcc
-def test_pagerank_c_standalone_tu() -> None:
-    with tempfile.TemporaryDirectory() as d:
-        src = tu.emit_source("pagerank", NUMPY_PY, "c", d)
-    r = tu.build_run_c(src, c_driver())
-    assert r.returncode == 0, r.stdout + r.stderr
-
-
-@tu.have_gpp
-def test_pagerank_cpp_standalone_tu() -> None:
-    with tempfile.TemporaryDirectory() as d:
-        src = tu.emit_cpp_source("pagerank", NUMPY_PY, d)
-    r = tu.build_run_c(src, c_driver(), cpp=True)
-    assert r.returncode == 0, r.stdout + r.stderr
-
-
-@tu.have_gfortran
-def test_pagerank_fortran_standalone_tu() -> None:
-    with tempfile.TemporaryDirectory() as d:
-        src = tu.emit_source("pagerank", NUMPY_PY, "fortran", d)
-    r = tu.build_run_fortran(src, f_driver())
-    assert r.returncode == 0, r.stdout + r.stderr

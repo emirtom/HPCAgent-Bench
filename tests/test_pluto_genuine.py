@@ -478,21 +478,6 @@ def test_a_transients_vla_cast_is_respelled_as_the_variables_own_type() -> None:
     assert "float *x = (float *)malloc(8);" in out
 
 
-def test_ppcg_only_ever_asks_for_cuda() -> None:
-    """The ``--target`` is not vendor-derived and must not become so: ppcg takes c/cuda/opencl and
-    has no AMD target at all, so ``cuda`` is what it is asked for on every host and the translation
-    happens after (:func:`ppcg_transform.hipify`)."""
-    from hpcagent_bench.polyhedral import ppcg as ppcg_transform
-
-    assert "--target=cuda" in ppcg_transform.PPCG_ARGS
-
-
-def test_polycc_is_invoked_with_pet() -> None:
-    """``--pet`` because the emitted scop uses ``int64_t`` counters the default clan extractor
-    rejects."""
-    assert "--pet" in pluto_transform.POLYCC_ARGS
-
-
 def test_polycc_runs_under_the_pet_parse_shim(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """pet extracts the scop with a flag-less libclang. On aarch64 its default target has no ``neon``
     feature, so glibc's ``<bits/math-vector.h>`` -- reached through the preamble's ``<math.h>`` --

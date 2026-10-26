@@ -27,24 +27,17 @@ HEAVY = ("dace", "jax", "sympy", "torch", "tvm")
 
 
 # lazy framework registry
-def test_importing_the_framework_registry_pulls_in_no_backend() -> None:
+def test_the_framework_registry_and_the_harness_modules_import_without_a_backend() -> None:
     """Importing every backend costs seconds of dace + jax in anything that touches
-    ``hpcagent_bench.frameworks`` -- every forked child and every pytest worker. A fresh interpreter
-    must import the package with none of them loaded."""
-    code = f"import sys, hpcagent_bench.frameworks;print(','.join(m for m in {HEAVY!r} if m in sys.modules))"
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
-    assert out.stdout.strip() == "", f"framework import pulled in: {out.stdout.strip()}"
-
-
-def test_the_harness_modules_import_without_a_backend() -> None:
-    """The scorer's own modules reach into the registry for Benchmark / compare_arrays /
-    tolerances_for. Those must not be a backdoor to the heavy imports."""
+    ``hpcagent_bench.frameworks`` -- every forked child and every pytest worker. The scorer's own modules
+    reach into the registry for Benchmark / compare_arrays / tolerances_for, so they must not be a
+    backdoor either: a fresh interpreter imports all three with none of the backends loaded."""
     code = (
-        "import sys, hpcagent_bench.harness.scoring, hpcagent_bench.harness.native_call;"
+        "import sys, hpcagent_bench.frameworks, hpcagent_bench.harness.scoring, hpcagent_bench.harness.native_call;"
         f"print(','.join(m for m in {HEAVY!r} if m in sys.modules))"
     )
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
-    assert out.stdout.strip() == "", f"harness import pulled in: {out.stdout.strip()}"
+    assert out.stdout.strip() == "", f"registry or harness import pulled in: {out.stdout.strip()}"
 
 
 def test_every_lazily_exported_name_actually_resolves() -> None:

@@ -8,7 +8,6 @@ answer they are checked against."""
 import contextlib
 import ctypes
 import enum
-import inspect
 import os
 import pathlib
 import pickle
@@ -63,7 +62,6 @@ __all__ = [
     "TORCH_PORT_TOLERANCE",
     "all_backend_status",
     "binding_shape",
-    "call_by_name",
     "comparison_array",
     "compile_command",
     "compiled_reference",
@@ -133,7 +131,7 @@ os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("BLIS_NUM_THREADS", "1")
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 
 from hpcagent_bench import dtypes as _dtypes  # noqa: E402
 
@@ -459,20 +457,6 @@ def compiled_reference(spec: BenchSpec, values: dict[str, Any]) -> dict[str, np.
         memory_gb=0.0,
     )
     return outputs
-
-
-def call_by_name(fn: Callable[..., object], ordered_names: Sequence[str], values: Mapping[str, object]) -> object:
-    """Invoke a python impl with LABELLED arguments (so a non-canonical ``def`` order still binds), falling back to
-    ``ordered_names`` positionally for impls that cannot be bound by name."""
-    try:
-        params = inspect.signature(fn).parameters
-    except (TypeError, ValueError):
-        return fn(*[values[n] for n in ordered_names])
-    if any(p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD) for p in params.values()):
-        return fn(*[values[n] for n in ordered_names])
-    if any(n not in values for n, p in params.items() if p.default is inspect.Parameter.empty):
-        return fn(*[values[n] for n in ordered_names])
-    return fn(**{n: values[n] for n in params if n in values})
 
 
 #: A line announcing the cause, in either compiler's layout.
