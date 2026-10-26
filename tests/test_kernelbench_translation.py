@@ -19,6 +19,7 @@ import concurrent.futures
 import os
 import subprocess
 import sys
+import zlib
 
 import pytest
 
@@ -36,10 +37,11 @@ KERNELBENCH_TAG = "kernelbench"
 #: miscompile fixes (contraction extent, elementwise ufunc arg, parameter write-through).
 MIN_TRANSLATING = 121
 
-#: Per push (``HPCAGENT_BENCH_E2E_SUBSET=1``) every :data:`SAMPLE_STRIDE`-th port, with its own floor; a dispatched run, all.
+#: Per push (``HPCAGENT_BENCH_E2E_SUBSET=1``) the ports whose name hashes into one :data:`SAMPLE_STRIDE`-th, with
+#: its own floor; a dispatched run, all. A hash, not a position, so adding a port never shifts the others' sample.
 SAMPLE = os.environ.get("HPCAGENT_BENCH_E2E_SUBSET", "") == "1"
 SAMPLE_STRIDE = 10
-MIN_TRANSLATING_SAMPLE = 21
+MIN_TRANSLATING_SAMPLE = 20
 
 #: Per-kernel wall clock. Every port that translates finishes within 31 s on one core (measured over all
 #: 250 at preset S); the ones that run longer are the large CNNs (densenet, resnet101, googlenet), none of
@@ -87,6 +89,11 @@ def translates(stem: str) -> bool:
     return done.stdout.strip().endswith("ok")
 
 
+def sampled(stem: str) -> bool:
+    """Whether ``stem`` is in the per-push sample: its name's CRC32 falls in one :data:`SAMPLE_STRIDE`-th."""
+    return zlib.crc32(stem.encode()) % SAMPLE_STRIDE == 0
+
+
 def test_the_subtrack_is_still_registered() -> None:
     """A ratchet over an empty set passes forever."""
     assert kernelbench_stems()
@@ -94,7 +101,7 @@ def test_the_subtrack_is_still_registered() -> None:
 
 @pytest.mark.integration
 def test_at_least_the_pinned_number_of_ports_translate() -> None:
-    stems = kernelbench_stems()[::SAMPLE_STRIDE] if SAMPLE else kernelbench_stems()
+    stems = [stem for stem in kernelbench_stems() if not SAMPLE or sampled(stem)]
     floor = MIN_TRANSLATING_SAMPLE if SAMPLE else MIN_TRANSLATING
 
     def probe(stem: str) -> tuple[str, bool]:
