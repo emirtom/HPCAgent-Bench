@@ -29,14 +29,17 @@ def z_(n: int = 6, seed: int = 0) -> np.ndarray:
     return (rng.standard_normal(n) + 1j * rng.standard_normal(n)).astype(np.complex128)
 
 
-def test_scalar_real_imag_in_real_arithmetic() -> None:
-    # ``.real`` and ``.imag`` on a complex scalar, combined into a REAL result.
-    src = (
-        "import numpy as np\n"
-        "def k(z, out):\n"
-        " for i in range(z.shape[0]):\n"
-        "  out[i] = z[i].real * z[i].imag + z[i].real - z[i].imag\n"
-    )
+@pytest.mark.parametrize(
+    "expr",
+    [
+        # ``.real`` and ``.imag`` on a complex scalar, combined into a REAL result.
+        pytest.param("z[i].real * z[i].imag + z[i].real - z[i].imag", id="accessor"),
+        # ``np.real(z)`` / ``np.imag(z)`` -- the function spelling, desugared to the accessor's canonical form.
+        pytest.param("np.real(z[i]) * np.imag(z[i]) - np.real(z[i])", id="function"),
+    ],
+)
+def test_scalar_real_imag_in_real_arithmetic(expr: str) -> None:
+    src = f"import numpy as np\ndef k(z, out):\n for i in range(z.shape[0]):\n  out[i] = {expr}\n"
     ok, res = all_ok(
         run_op(src, "k", {"z": z_()}, {"out": (6,)}, {"N": 6}, shapes={"z": "(N,)", "out": "(N,)"}, backends=ALL)
     )
@@ -53,9 +56,19 @@ def test_whole_array_real_and_imag() -> None:
         assert ok, (accessor, res)
 
 
-def test_complex_elementwise_output() -> None:
-    # ``.imag`` (real) scaling a complex value -> a COMPLEX element-wise store.
-    src = "import numpy as np\ndef k(z, out):\n for i in range(z.shape[0]):\n  out[i] = z[i] * z[i].imag + z[i]\n"
+@pytest.mark.parametrize(
+    "body",
+    [
+        # ``.imag`` (real) scaling a complex value -> a COMPLEX element-wise store.
+        pytest.param("  out[i] = z[i] * z[i].imag + z[i]\n", id="elementwise"),
+        # ``z.real if <cond> else z`` -- a REAL branch beside a COMPLEX one. The promotion pass makes both
+        # branches complex so Fortran ``merge`` and the JIT unifiers accept it (mirrors QE ``_add_nlxx_pot``
+        # gamma_only ``deexx.real``).
+        pytest.param("  d = z[i].real if z[i].real > 0.0 else z[i]\n  out[i] = d + 1.0\n", id="mixed-conditional"),
+    ],
+)
+def test_a_complex_output_matches_numpy(body: str) -> None:
+    src = "import numpy as np\ndef k(z, out):\n for i in range(z.shape[0]):\n" + body
     ok, res = all_ok(
         run_op(
             src,
@@ -67,47 +80,6 @@ def test_complex_elementwise_output() -> None:
             dtypes={"out": "complex128"},
             backends=ALL,
         )
-    )
-    assert ok, res
-
-
-def test_mixed_real_complex_conditional() -> None:
-    # ``z.real if <cond> else z`` -- a REAL branch beside a COMPLEX one. The
-    # promotion pass makes both branches complex so Fortran ``merge`` and the JIT
-    # unifiers accept it (mirrors QE ``_add_nlxx_pot`` gamma_only ``deexx.real``).
-    src = (
-        "import numpy as np\n"
-        "def k(z, out):\n"
-        " for i in range(z.shape[0]):\n"
-        "  d = z[i].real if z[i].real > 0.0 else z[i]\n"
-        "  out[i] = d + 1.0\n"
-    )
-    ok, res = all_ok(
-        run_op(
-            src,
-            "k",
-            {"z": z_()},
-            {"out": (6,)},
-            {"N": 6},
-            shapes={"z": "(N,)", "out": "(N,)"},
-            dtypes={"out": "complex128"},
-            backends=ALL,
-        )
-    )
-    assert ok, res
-
-
-def test_np_real_imag_function_form() -> None:
-    # ``np.real(z)`` / ``np.imag(z)`` -- the function spelling. Desugars to the
-    # same canonical form as the ``.real`` / ``.imag`` accessor.
-    src = (
-        "import numpy as np\n"
-        "def k(z, out):\n"
-        " for i in range(z.shape[0]):\n"
-        "  out[i] = np.real(z[i]) * np.imag(z[i]) - np.real(z[i])\n"
-    )
-    ok, res = all_ok(
-        run_op(src, "k", {"z": z_()}, {"out": (6,)}, {"N": 6}, shapes={"z": "(N,)", "out": "(N,)"}, backends=ALL)
     )
     assert ok, res
 

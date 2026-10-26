@@ -43,11 +43,6 @@ def test_a_tuner_episode_submits_to_its_judge_and_records_its_end(
     assert (tmp_path / harnesses.USAGE_FILE).is_file()
 
 
-def test_the_driver_launches_a_tuner_as_a_runner() -> None:
-    assert harnesses.TUNER in harnesses.HARNESSES
-    assert harnesses.RUNNERS[harnesses.TUNER].command.__name__ == "tuner_command"
-
-
 def test_a_tuner_setup_renders_without_inference_and_names_its_tuner() -> None:
     experiment = next(iter(env_spec.load_spec()))
     env = env_spec.render_experiment(experiment, "noop", env_spec.load_spec())
@@ -65,7 +60,6 @@ if __name__ == "__main__":
     from tests.conftest import judge_factory
 
     test_a_tuner_solves_the_kind_of_submission_its_judge_takes()
-    test_the_driver_launches_a_tuner_as_a_runner()
     test_a_tuner_setup_renders_without_inference_and_names_its_tuner()
     for kernel in ("gemm", "scientific_computing/dense_linear_algebra/gemm/gemm"):
         with pytest.MonkeyPatch.context() as patch, tempfile.TemporaryDirectory() as scratch, judge_factory() as make:

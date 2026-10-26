@@ -117,31 +117,16 @@ def test_non_finite_in_non_inlinable_helper_matches_numpy() -> None:
 
 
 @pytest.mark.parametrize(
-    ("expr", "val"),
-    [
-        ("np.inf", np.inf),
-        ("-np.inf", -np.inf),
-        ("math.inf", np.inf),
-        ("float('inf')", np.inf),
-        ("float('-inf')", -np.inf),
-        ("1e999", np.inf),
-    ],
+    "expr",
+    ["np.inf", "-np.inf", "math.inf", "float('inf')", "float('-inf')", "1e999", "np.nan", "math.nan", "float('nan')"],
 )
-def test_non_finite_infinity_forms_match_numpy(expr: str, val: float) -> None:
-    # Every IEEE-infinity spelling lowers to a valid constant on the native
+def test_non_finite_forms_match_numpy(expr: str) -> None:
+    # Every IEEE-infinity and NaN spelling lowers to a valid constant on the native
     # backends (C INFINITY / Fortran ieee_value) and stays verbatim on python.
     no = op_oracle.native()
     src = f"import numpy as np\nimport math\ndef f(out):\n    out[0] = {expr}\n    out[1] = 1.0\n"
     st = no.run_op(src, "f", {}, {"out": (2,)}, {"N": 2}, shapes={"out": "(N,)"})
-    op_oracle.assert_ok(st, ("c", "cpp", "fortran", "numba"), f"inf[{expr}]")
-
-
-@pytest.mark.parametrize("expr", ["np.nan", "math.nan", "float('nan')"])
-def test_non_finite_nan_forms_match_numpy(expr: str) -> None:
-    no = op_oracle.native()
-    src = f"import numpy as np\nimport math\ndef f(out):\n    out[0] = {expr}\n    out[1] = 1.0\n"
-    st = no.run_op(src, "f", {}, {"out": (2,)}, {"N": 2}, shapes={"out": "(N,)"})
-    op_oracle.assert_ok(st, ("c", "cpp", "fortran", "numba"), f"nan[{expr}]")
+    op_oracle.assert_ok(st, ("c", "cpp", "fortran", "numba"), f"non-finite[{expr}]")
 
 
 def test_registry_resolves_kind_to_numpy_and_ctype() -> None:

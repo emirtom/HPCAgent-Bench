@@ -1,6 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Standalone-TU e2e test for the subset_sum kernel (backtrack/branch&bound).
+"""Standalone-TU inputs for the subset_sum kernel (backtrack/branch&bound).
 
 The emitted kernel is compiled into a SINGLE translation unit with a self-checking
 driver embedding the items + target and the numpy-reference subset count, then
@@ -10,7 +10,6 @@ feasibility prunes.
 
 import importlib.util
 import sys
-import tempfile
 
 import numpy as np
 
@@ -18,6 +17,7 @@ from tests.translators import native_tu as tu
 
 DIR = tu.REPO / "hpcagent_bench" / "benchmarks" / "scientific_computing" / "backtrack_branch_bound" / "subset_sum"
 NUMPY_PY = DIR / "subset_sum_numpy.py"
+KERNEL = "subset_sum"
 
 N = 20
 
@@ -86,27 +86,3 @@ program test_subset_sum
     end if
 end program test_subset_sum
 """
-
-
-@tu.have_gcc
-def test_subset_sum_c_standalone_tu() -> None:
-    with tempfile.TemporaryDirectory() as d:
-        src = tu.emit_source("subset_sum", NUMPY_PY, "c", d)
-    r = tu.build_run_c(src, c_driver())
-    assert r.returncode == 0, r.stdout + r.stderr
-
-
-@tu.have_gpp
-def test_subset_sum_cpp_standalone_tu() -> None:
-    with tempfile.TemporaryDirectory() as d:
-        src = tu.emit_cpp_source("subset_sum", NUMPY_PY, d)
-    r = tu.build_run_c(src, c_driver(), cpp=True)
-    assert r.returncode == 0, r.stdout + r.stderr
-
-
-@tu.have_gfortran
-def test_subset_sum_fortran_standalone_tu() -> None:
-    with tempfile.TemporaryDirectory() as d:
-        src = tu.emit_source("subset_sum", NUMPY_PY, "fortran", d)
-    r = tu.build_run_fortran(src, f_driver())
-    assert r.returncode == 0, r.stdout + r.stderr

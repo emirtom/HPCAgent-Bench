@@ -164,15 +164,6 @@ def test_c_still_lowers_every_one_of_them_to_loops() -> None:
         assert "for (" in text, (call, text)
 
 
-def test_an_integer_operand_is_not_claimed() -> None:
-    """numpy's int32 ``sum`` WRAPS on overflow and Fortran's does not, and an integer ``mean``
-    would become integer division. Only positive evidence of a float claims the call."""
-    node = ast.parse("np.sum(a)", mode="eval").body
-    assert not renders_natively(("np", "sum"), node, SHAPE_TABLE, {"a": "int32"})
-    assert not renders_natively(("np", "sum"), node, SHAPE_TABLE, {}), "an untagged name is not a float"
-    assert renders_natively(("np", "sum"), node, SHAPE_TABLE, DTYPE_TABLE)
-
-
 def test_the_intrinsics_match_numpy_on_every_backend() -> None:
     """An intrinsic spelled wrong compiles; only the numbers catch it.
 

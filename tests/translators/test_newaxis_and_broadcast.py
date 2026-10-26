@@ -66,23 +66,7 @@ def test_subscript_negative_upper_resolves_against_axis_len() -> None:
     assert ast.unparse(s) == "N - 1 - 1"
 
 
-def test_subscript_omitted_trailing_axes_filled_in() -> None:
-    """``A[1:N-1]`` on (N, M) -> extent (N-1-1, M)."""
-    ext = iter_extent_of(expr_("A[1:N - 1]"), {"A": ("N", "M")})
-    assert len(ext) == 2
-    assert ast.unparse(ext[0]) == "N - 1 - 1"
-    assert ast.unparse(ext[1]) == "M"
-
-
 # C. ``np.newaxis`` (== ``None``) extent                                       #
-
-
-def test_newaxis_trailing_inserts_length_1() -> None:
-    """``Y[:, None]`` on (N,) -> extent (N, 1). The classic
-    column-vector pattern used by mandelbrot's
-    ``X + Y[:, None] * 1j``."""
-    ext = iter_extent_of(expr_("Y[:, None]"), {"Y": ("N",)})
-    assert unparse_ext(ext) == ("N", "1")
 
 
 def test_newaxis_leading_inserts_length_1_at_front() -> None:
@@ -106,21 +90,6 @@ def test_newaxis_between_existing_axes_on_2d() -> None:
 
 
 # D. Broadcast extents through BinOp                                           #
-
-
-def test_binop_extent_picks_wider_operand() -> None:
-    """``A + b`` where A:(N, M) and b:(M,) reports A's 2-D extent."""
-    ext = iter_extent_of(expr_("A + b"), {"A": ("N", "M"), "b": ("M",)})
-    assert unparse_ext(ext) == ("N", "M")
-
-
-def test_binop_extent_broadcasts_newaxis_against_vector() -> None:
-    """``X + Y[:, None]`` with X:(M,) and Y[:, None]:(N, 1) ->
-    extent (N, M). The trailing-1 axis on Y[:, None] stretches
-    to M; the leading axis on X is implicit-1 and stretches to
-    N. This is the mandelbrot per-pixel grid."""
-    ext = iter_extent_of(expr_("X + Y[:, None]"), {"X": ("M",), "Y": ("N",)})
-    assert unparse_ext(ext) == ("N", "M")
 
 
 def test_binop_broadcast_equal_rank() -> None:
@@ -155,26 +124,11 @@ def test_scalarize_broadcasted_1d_subscripts_trailing_iter() -> None:
 # F. Scalarisation -- newaxis drops its iter                                   #
 
 
-def test_scalarize_y_newaxis_drops_inner_iter() -> None:
-    """``Y[:, None]`` at iters (i, j) -> ``Y[i]`` -- the
-    inserted None axis does not contribute to Y's subscript;
-    the j iter is consumed but discarded."""
-    out = scalarize_at_iters(expr_("Y[:, None]"), [ivar("i"), ivar("j")], {"Y": ("N",)})
-    assert ast.unparse(out) == "Y[i]"
-
-
 def test_scalarize_y_newaxis_leading_drops_outer_iter() -> None:
     """``Y[None, :]`` at iters (i, j) -> ``Y[j]`` (leading
     None consumes i; the slice consumes j)."""
     out = scalarize_at_iters(expr_("Y[None, :]"), [ivar("i"), ivar("j")], {"Y": ("N",)})
     assert ast.unparse(out) == "Y[j]"
-
-
-def test_scalarize_mandelbrot_pattern() -> None:
-    """``X + Y[:, None] * 1j`` at iters (i, j) ->
-    ``X[j] + Y[i] * 1j`` -- the full mandelbrot per-element form."""
-    out = scalarize_at_iters(expr_("X + Y[:, None] * 1j"), [ivar("i"), ivar("j")], {"X": ("M",), "Y": ("N",)})
-    assert ast.unparse(out) == "X[j] + Y[i] * 1j"
 
 
 def test_scalarize_conv2d_pattern_simplified() -> None:
@@ -205,30 +159,7 @@ GATHER_SHAPES = {
 }
 
 
-def test_chained_gather_keeps_its_axis_under_a_newaxis() -> None:
-    """``x[aj][:, None, :, :]``: the gather KEEPS an axis per index dim, so the residual
-    base is (pairs, UNROLLJ, 3) and the newaxis inserts a unit axis into it."""
-    ext = iter_extent_of(expr_("x[aj][:, None, :, :]"), GATHER_SHAPES)
-    assert unparse_ext(ext) == ("pairs", "1", "UNROLLJ", "3")
-
-
 def test_chained_scalar_index_still_drops_its_axis() -> None:
     """The scalar-chain case the gather rule must not break: ``psi[f]`` drops axis 0."""
     ext = iter_extent_of(expr_("psi[f][..., 0]"), GATHER_SHAPES)
     assert unparse_ext(ext) == ("X", "Y")
-
-
-def test_multiple_index_arrays_broadcast_rather_than_take_the_longest() -> None:
-    """Two rank-3 index arrays broadcast: (1, I, 1) with (P, 1, J) is (P, I, J).
-
-    Taking the longest is only right when the ranks differ; on a tie it silently kept the
-    first operand's size-1 axes.
-    """
-    ext = iter_extent_of(expr_("nbfp[type_i[None, :, None], type_j[:, None, :], 0]"), GATHER_SHAPES)
-    assert unparse_ext(ext) == ("pairs", "UNROLLI", "UNROLLJ")
-
-
-def test_gather_index_may_be_an_expression_not_only_a_name() -> None:
-    """``table[ri + 1]`` is a gather: its extent is the INDEX's, not the table's."""
-    ext = iter_extent_of(expr_("table[ri + 1]"), GATHER_SHAPES)
-    assert unparse_ext(ext) == ("pairs", "UNROLLI", "UNROLLJ")

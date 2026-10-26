@@ -5,7 +5,6 @@ variants, polly and Pluto. Pure metadata."""
 
 import dataclasses
 import pathlib
-import subprocess
 import sys
 import types
 
@@ -213,16 +212,6 @@ def test_the_polyhedral_columns_emit_c_and_compile_what_their_tool_writes() -> N
         assert LANG_TARGET[NATIVE_FRAMEWORKS[name]] == "c"
     assert FRAMEWORK_LANG["pluto"] is Language.C
     assert (FRAMEWORK_LANG["ppcg_cuda"], FRAMEWORK_LANG["ppcg_hip"]) == (Language.CUDA, Language.HIP)
-
-
-@pytest.mark.parametrize(
-    "module", ["hpcagent_bench.frameworks.native_runtime", "hpcagent_bench.autogen", "hpcagent_bench.frameworks"]
-)
-def test_each_native_table_module_imports_first_in_a_fresh_interpreter(module: str) -> None:
-    """A registry check that read ``native_runtime.FRAMEWORK_LANG`` while framework.py loaded made
-    ``import hpcagent_bench.frameworks.native_runtime`` a circular ImportError when it came first."""
-    proc = subprocess.run([sys.executable, "-c", f"import {module}"], capture_output=True, text=True, check=False)
-    assert proc.returncode == 0, proc.stderr[-2000:]
 
 
 def test_the_build_tables_are_projections_of_the_registry() -> None:

@@ -73,7 +73,6 @@ __all__ = [
     "load_impl",
     "load_rewritten_impl",
     "native_column_languages",
-    "split_flavor",
     "start_event_timer",
     "stop_cupy_event_timer",
 ]
@@ -396,15 +395,6 @@ class TorchCudaEventTiming:
 def framework_flavors(base: str) -> list[str]:
     """The flat framework names that are flavors of ``base`` (e.g. "native" -> ["cc", "llvm", ...])."""
     return [name for name, column in FRAMEWORKS.entries.items() if column.base == base]
-
-
-def split_flavor(fname: str) -> tuple[str, str | None]:
-    """``"dace_cpu_parallel"`` -> ``("dace_cpu", "parallel")``; a column with no flavor -> ``(name, None)``. Declared
-    (``column`` + ``flavor``), never parsed from underscores."""
-    entry = FRAMEWORKS.entries[fname]
-    if entry.flavor is None or entry.column is None:  # Column refuses one without the other
-        return fname, None
-    return entry.column, entry.flavor
 
 
 def check_flavor_registry() -> None:

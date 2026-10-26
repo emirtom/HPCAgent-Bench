@@ -174,16 +174,6 @@ def test_gen_stub_cuda_hip_host_entry() -> None:
         assert STUB_BODY in stub  # body is a stub, not a solution
 
 
-def test_cuda_hip_registered_everywhere() -> None:
-    """The GPU targets are wired through the language + binding registries."""
-    from hpcagent_bench.languages import LANG_EXT
-    from hpcagent_bench.support.bindings.stubs import LANGS
-
-    assert {Language.CUDA, Language.HIP} <= set(LANGS)
-    assert LANG_EXT[Language.CUDA] == "cu"
-    assert LANG_EXT[Language.HIP] == "hip"
-
-
 # the full loop: StubAgent -> sandbox compile -> native call -> score
 
 

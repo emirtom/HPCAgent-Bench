@@ -47,7 +47,6 @@ __all__ = [
     "marker_style",
     "markers",
     "model_color",
-    "model_markers",
     "model_shade",
     "ordered_color",
     "packet_marker",
@@ -309,18 +308,6 @@ def harness_marker(harness: str) -> Marker:
     """The one SHAPE an agent HARNESS wears (:func:`shape_table`), from the same pool as the packets,
     so a harness and a packet in one figure never share a shape."""
     return treatment_shape("harnesses", harness)
-
-
-def model_markers(models: Iterable[str]) -> dict[str, str]:
-    """``{model: marker}`` for one figure."""
-    chosen = {m: marker(m) for m in dict.fromkeys(models)}
-    seen: dict[str, str] = {}
-    for name, shape in chosen.items():
-        entity = canonical("models", name)
-        if shape in seen and seen[shape] != entity:
-            LOG.warning("palette: models %r and %r both draw %r; extend markers", seen[shape], name, shape)
-        seen[shape] = entity
-    return chosen
 
 
 def framework_color(name: str) -> str:

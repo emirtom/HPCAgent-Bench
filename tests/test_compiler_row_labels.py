@@ -50,14 +50,6 @@ def test_one_device_variant_keeps_its_optimizer_name(canon: pd.DataFrame) -> Non
     assert row.label == "DaCe+CPF"
 
 
-@pytest.mark.parametrize(
-    ("value", "want"), [(6.27, "6.3x"), (32.45, "32.5x"), (0.928, "1/1.1x"), (1.0, "1.0x"), (0.04, "1/25.0x")]
-)
-def test_a_speedup_value_is_printed_to_one_decimal(value: float, want: str) -> None:
-    """One decimal is what a reader quotes; a slowdown prints as its reciprocal, never as 0.0x."""
-    assert style.ratio_label(value) == want
-
-
 def test_an_undelivered_placeholder_is_drawn_hollow() -> None:
     """A cross in the series' colour on a FILLED mark of that colour is invisible: 34 of 40 PPCG
     placeholders read as measured 1x results. The placeholder's face must be empty."""

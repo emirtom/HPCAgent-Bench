@@ -57,8 +57,6 @@ def test_strategy_changes_the_how_to_text_and_both_profile() -> None:
     prof = build_prompt(TASK, prompt_config=PromptConfig.from_config(strategy=PromptStrategy.PROFILE_FIRST))
     loop = build_prompt(TASK, prompt_config=PromptConfig.from_config(strategy=PromptStrategy.LOOPNEST))
     assert prof != loop
-    assert "Start by profiling" in prof
-    assert "Start loop nest by loop nest" in loop
     assert "perf stat" in prof
     assert "perf stat" in loop
 

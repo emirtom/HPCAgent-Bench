@@ -207,9 +207,10 @@ def test_distributed_stencil_scores_solved(kernel: str, mpi_c: tuple[str, list[s
     assert result.speedup > 0
 
 
-@pytest.mark.parametrize("kernel", _STENCILS)
-def test_distributed_stencil_python_delivery_scores_solved(kernel: str) -> None:
-    # mpi4py twin of each stencil; override mpi.launcher to match mpi4py's MPI.
+@pytest.mark.parametrize("kernel", [*_STENCILS, "mat_scaled_add"])
+def test_distributed_python_delivery_scores_solved(kernel: str) -> None:
+    # mpi4py twin of each stencil and of the 2-D block-cyclic mat_scaled_add (the scatter/gather is
+    # delivery-agnostic); override mpi.launcher to match mpi4py's MPI.
     launch = mpi_launch_helpers.mpi4py_launcher()
     if launch is None:
         pytest.skip(f"mpi4py has no working launcher in this environment: {mpi4py_launcher_diagnosis()}")
@@ -251,23 +252,6 @@ def test_distributed_block_cyclic_2d_scores_solved(mpi_c: tuple[str, list[str]])
     sub = NoOpMPIOptimizer().solve(task)
     assert sub.requests.grid_at(4) == (2, 2)  # the equal-edge 2-D grid for R=4
     result = scoring.score(sub, task, preset=Preset.S)
-    assert result.correct, result.detail
-    assert result.build_ok
-    assert result.native_ns >= 0
-    assert result.speedup > 0
-
-
-def test_distributed_block_cyclic_2d_python_delivery_scores_solved() -> None:
-    # mpi4py twin: proves the 2-D block-cyclic scatter/gather is delivery-agnostic.
-    launch = mpi_launch_helpers.mpi4py_launcher()
-    if launch is None:
-        pytest.skip(f"mpi4py has no working launcher in this environment: {mpi4py_launcher_diagnosis()}")
-    task = Task(kernel="mat_scaled_add", language=Language.PYTHON, residency=Residency.DISTRIBUTED)
-    config.set_override("mpi.launcher", list(launch))
-    try:
-        result = scoring.score(NoOpMPIOptimizer().solve(task), task, preset=Preset.S)
-    finally:
-        config.clear_override("mpi.launcher")
     assert result.correct, result.detail
     assert result.build_ok
     assert result.native_ns >= 0

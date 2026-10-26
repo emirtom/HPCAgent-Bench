@@ -41,7 +41,6 @@ from hpcagent_bench.support.bindings.contract import (
     Binding,
     binding_from_spec,
     c_param,
-    graded_datatype,
     workspace_c_params,
 )
 from hpcagent_bench.translators.numpyto_common.naming import fptype_tag, short_for
@@ -184,16 +183,6 @@ def insert_before_entry(code: str, entry: str, text: str) -> str:
     if match is None:
         raise ValueError(f"the rendered unit declares no entry {entry}")
     return code[: match.start()] + text + code[match.start() :]
-
-
-def form_fptype(kernel: str, datatype: str) -> str:
-    """The precision tag a kernel's canonical form is rendered and looked up at: its graded datatype, else
-    ``datatype``'s for an unknown name."""
-    try:
-        spec = BenchSpec.load(kernel)
-    except Exception:  # noqa: BLE001 -- an agent's unknown name keeps the run's precision; the lookup then misses
-        return fptype_tag(datatype)
-    return fptype_tag(graded_datatype(spec, datatype))
 
 
 def abi_parameters(binding: Binding, dialect: str) -> tuple[str, ...]:

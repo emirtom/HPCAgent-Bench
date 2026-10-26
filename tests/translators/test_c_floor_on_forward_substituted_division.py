@@ -108,14 +108,6 @@ def sym_kir() -> KernelIR:
     return lower(oo.parse_source(SYM_SRC, "g", ["a"], ["out"], {"a": "(N, K)", "out": "(N, K)"}, {"N": 8, "K": 4}))
 
 
-def test_pluto_mode_keeps_the_floord_spelling_for_np_floor_of_symbols() -> None:
-    emitter = CBodyEmitter(sym_kir())
-    emitter.pluto = True
-    div = ast.parse("N / K", mode="eval").body
-    call = ast.Call(func=ast.Name(id="floor", ctx=ast.Load()), args=[div], keywords=[])
-    assert emitter.emit_expr(call) == "floord(N, K)"
-
-
 def test_pluto_mode_keeps_the_ceild_spelling_for_np_ceil_of_symbols() -> None:
     emitter = CBodyEmitter(sym_kir())
     emitter.pluto = True

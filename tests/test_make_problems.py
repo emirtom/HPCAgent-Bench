@@ -8,6 +8,8 @@ import pathlib
 import subprocess
 import sys
 
+import pytest
+
 from hpcagent_bench import flags, paths
 
 EXAMPLE = paths.ROOT / "hpcagent_bench" / "cluster"
@@ -85,9 +87,11 @@ def test_the_profiling_page_is_staged_with_a_copy_of_the_range_header(tmp_path: 
     assert (folder / flags.PAPI_RANGES_H.name).read_bytes() == flags.PAPI_RANGES_H.read_bytes()
 
 
-def test_without_skills_task_text_is_unchanged() -> None:
-    problem = generate("--language", "c")
-    assert problem["task"] == "Optimize argmax_value. Target language: c."
+@pytest.mark.parametrize("language", ["c", "fortran"])
+def test_without_skills_task_text_is_unchanged(language: str) -> None:
+    """A no-packet control task is the bare assignment: no skill path hands it the treatment."""
+    problem = generate("--language", language)
+    assert problem["task"] == f"Optimize argmax_value. Target language: {language}."
 
 
 def test_the_assignment_comes_first_and_the_triggers_last() -> None:
@@ -172,12 +176,6 @@ def test_a_tag_line_with_a_trailing_comment_still_names_its_kernel(tmp_path: pat
     )
     kernels = [json.loads(line)["kernel"] for line in out.stdout.splitlines() if line.strip()]
     assert kernels == [KERNEL], kernels
-
-
-def test_no_packet_names_no_page() -> None:
-    """A control setup that quietly carries pages measures nothing and reports a clean null."""
-    task = generate("--language", "c")["task"]
-    assert "/skills/" not in task, task
 
 
 DIST_KERNEL = "machine_learning/dist_softmax/dist_softmax"

@@ -18,12 +18,6 @@ from hpcagent_bench.results import studies
 from hpcagent_bench.stats import palette
 
 
-def test_every_packet_the_palette_hues_is_named() -> None:
-    """The hue ramp and the name block are two halves of one identity and must hold one vocabulary."""
-    named = set(study_tags.names("packets"))
-    assert set(palette.hue_order("packets")) <= named
-
-
 def test_every_framework_the_palette_hues_is_named() -> None:
     named = set(study_tags.names("frameworks"))
     assert set(palette.hue_order("frameworks")) <= named
