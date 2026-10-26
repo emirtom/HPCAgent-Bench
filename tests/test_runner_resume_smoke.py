@@ -5,8 +5,9 @@ resumable ``api_timeout``, ``--resume-prompt`` re-sends exactly the cut-off requ
 ``usage.jsonl`` holds each completed call once, split into its four disjoint counts.
 
 The stub answers a leg's requests in order; :data:`DROP` is a request whose response dies mid-body, and it keeps
-dropping every retry the client's SDK makes. A runner whose SDK is not installed in this interpreter is skipped
-(each runs in its own venv, ``agent/pyproject.toml``'s ``harness-<name>`` groups).
+dropping every retry the client's SDK makes. A runner whose SDK is not installed in this interpreter is skipped:
+each runs in its own venv (``agent/pyproject.toml``'s ``harness-<name>`` groups), where CI's integration[0] runs
+this file once per runner.
 """
 
 import http.server
@@ -201,7 +202,13 @@ def stub_fixture() -> Iterator[str]:
 
 def run_leg(runner: Runner, workdir: pathlib.Path, base_url: str, script: list[Any], *extra: str) -> int:
     StubModel.script = list(script)
-    env = {**os.environ, "ANTHROPIC_API_KEY": "stub", "OPENAI_API_KEY": "stub"}
+    # mini-swe-agent retries a failed call 10 times with backoff (minutes); two attempts show the same ending.
+    env = {
+        **os.environ,
+        "ANTHROPIC_API_KEY": "stub",
+        "OPENAI_API_KEY": "stub",
+        "MSWEA_MODEL_RETRY_STOP_AFTER_ATTEMPT": "2",
+    }
     mcp = ("--mcp-config", str(workdir / "mcp.json")) if runner.mcp else ()
     argv = [
         sys.executable,
@@ -220,7 +227,8 @@ def test_a_dropped_call_resumes_with_the_cut_off_request_and_counts_each_call_on
     name: str, stub: str, tmp_path: pathlib.Path
 ) -> None:
     runner = RUNNERS[name]
-    if importlib.util.find_spec(runner.package) is None:
+    # CI names the runner its venv was built for, where a missing SDK is a broken venv, not a skip.
+    if importlib.util.find_spec(runner.package) is None and os.environ.get("HPCAGENT_BENCH_RUNNER_SMOKE") != name:
         pytest.skip(f"{runner.package} is installed only in the {name} runner's venv")
     (tmp_path / "prompt.txt").write_text("the task", encoding="utf-8")
     (tmp_path / "mcp_stub.py").write_text(MCP_STUB, encoding="utf-8")

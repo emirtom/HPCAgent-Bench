@@ -382,6 +382,24 @@ jobs:
         run: |
           python -m pytest -q -p no:cacheprovider -rfEs --timeout=900 --durations=0 tests/test_packaging.py
 
+      # Each LLM runner in its own locked harness venv (the groups conflict, so no shared env can hold them), run
+      # against tests/test_runner_resume_smoke.py's stub model server. optimas is left out (its venv pulls torch).
+      - name: Phase 3h -- harness runners against a stub model (anthropic, openai, miniswe venvs)
+        if: ${{ !cancelled() && matrix.shard.id == 0 }}
+        timeout-minutes: 10
+        run: |
+          for harness in anthropic openai miniswe; do
+            venv="$RUNNER_TEMP/harness-$harness"
+            uv venv -q --python 3.12 "$venv"
+            uv export -q --frozen --package hpcagent-agent --only-group "harness-$harness" --no-hashes \
+              --no-emit-project -o "$venv.txt"
+            uv pip install -q --python "$venv" -r "$venv.txt" ./agent pytest
+            # Outside the checkout: the repo's conftest and pytest config need the bench, which this venv lacks.
+            mkdir -p "$venv.tests" && cp tests/test_runner_resume_smoke.py "$venv.tests/"
+            (cd "$venv.tests" && HPCAGENT_BENCH_RUNNER_SMOKE="$harness" "$venv/bin/python" -m pytest -q \
+              -p no:cacheprovider -rfEs --rootdir . -k "$harness" test_runner_resume_smoke.py)
+          done
+
       - name: Phase 5 -- e2e numerical sweep [c, cpp, fortran] @ S, fp64, WHOLE gated corpus [shard 0/2]
         if: ${{ matrix.shard.native_fp64 && !cancelled() }}
         timeout-minutes: 15
