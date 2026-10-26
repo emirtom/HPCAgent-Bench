@@ -89,4 +89,3 @@ def test_declines_when_no_read_is_deeper() -> None:
         "flat_op",
     )
     assert assigns_to(body, "w"), f"a same-depth read must decline the substitution:\n{body}"
-
