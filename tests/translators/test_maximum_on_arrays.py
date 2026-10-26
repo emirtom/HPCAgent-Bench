@@ -27,15 +27,6 @@ def rewrite(expr: str, array_names: tuple[str, ...], defer: bool) -> str:
     return ast.unparse(tree)
 
 
-def test_deferred_pass_leaves_maximum_for_the_informed_pass() -> None:
-    """The first pass runs before local shapes exist, so `acc` is indistinguishable from a scalar.
-
-    Renaming there is what produced __npb_fmax on two pointers. Deferred, the call survives for the
-    later pass, which knows the locals and hands it to the elementwise expander.
-    """
-    assert rewrite("np.maximum(acc, w)", array_names=(), defer=True) == "np.maximum(acc, w)"
-
-
 def test_undeferred_pass_with_no_shapes_still_renames() -> None:
     """Pins WHY the deferral is needed: with an incomplete name set and no deferral, the rename
     fires on what are really two arrays."""

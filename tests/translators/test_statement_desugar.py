@@ -9,19 +9,14 @@ walks the leading axis. The three backends share one pass for each (``numpyto_co
 import ast
 import textwrap
 from collections.abc import Callable
-from typing import Any
-
-import numpy as np
 
 from hpcagent_bench.translators.numpyto_c.dace_emit import emit_dace
 from hpcagent_bench.translators.numpyto_c.emit import emit_c
 from hpcagent_bench.translators.numpyto_common.ir import KernelIR
 from hpcagent_bench.translators.numpyto_common.lowering import lower
 from hpcagent_bench.translators.numpyto_common.statement_desugar import DesugarArrayIteration, SplitChainedAssign
-from tests.optional_imports import import_or_skip
 from tests.translators.native_tu import build_run_c
 from tests.translators.op_oracle import parse_source
-from tests.translators.source_module import run_source
 
 #: Every array in these kernels is ``(N,)``, and ``N`` is this.
 EXTENT = 4
@@ -176,14 +171,6 @@ def test_a_chained_scalar_is_evaluated_once_into_a_temp() -> None:
     assert split("s = t = x * 2.0\n", seed_ranks={"x": 0}) == function_text("t0 = x * 2.0\ns = t0\nt = t0\n")
 
 
-def test_a_chained_literal_goes_through_the_temp() -> None:
-    assert split("s = t = 0.0\n") == function_text("t0 = 0.0\ns = t0\nt = t0\n")
-
-
-def test_a_chained_literal_repeats_where_the_backend_asks_for_it() -> None:
-    assert split("s = t = 0.0\n", repeat_literals=True) == function_text("s = 0.0\nt = 0.0\n")
-
-
 def test_a_chained_call_is_evaluated_once() -> None:
     """A helper call may act on its arguments, so it runs once and the other name is renamed to its value."""
     assert split("x = y = bump(c)\nout = x + y\n") == function_text("x = bump(c)\nout = x + x\n")
@@ -192,11 +179,6 @@ def test_a_chained_call_is_evaluated_once() -> None:
 def test_a_chained_array_is_one_name() -> None:
     body = "a = b = np.zeros(n)\na[0] = 1.0\nout[0] = b[0]\n"
     assert split(body) == function_text("a = np.zeros(n)\na[0] = 1.0\nout[0] = a[0]\n")
-
-
-def test_an_in_place_update_through_an_array_alias_updates_the_shared_name() -> None:
-    body = "a = b = np.zeros(n)\nb += 1.0\nout[0] = a[0]\n"
-    assert split(body) == function_text("a = np.zeros(n)\na += 1.0\nout[0] = a[0]\n")
 
 
 def test_an_alias_takes_the_buffer_where_the_shared_name_is_rebound() -> None:

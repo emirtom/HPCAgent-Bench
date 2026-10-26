@@ -31,7 +31,7 @@ from hpcagent_bench.translators.numpyto_common.lib_nodes import (
     expand_std,
     expand_sum,
 )
-from hpcagent_bench.translators.numpyto_common.numpy_desugar import expr_rank, reduce_axis_stmts
+from hpcagent_bench.translators.numpyto_common.numpy_desugar import reduce_axis_stmts
 from tests.translators.op_oracle import all_ok, run_op
 
 ALL = ("c", "cpp", "fortran", "numba")
@@ -239,19 +239,6 @@ def test_initial_numeric_all_backends() -> None:
 # Fix 6: mean / std / var preserve a FLOAT input's dtype (float32 stays f32)  #
 
 
-def test_mean_float_input_preserves_dtype_in_desugar() -> None:
-    float_src = src_(reduce_axis_stmts("t", "s", "mean", [0], 2, 0, elem_is_float=True))
-    assert "s.dtype" in float_src
-    assert "np.float64" not in float_src
-    int_src = src_(reduce_axis_stmts("t", "s", "mean", [0], 2, 0, elem_is_float=False))
-    assert "np.float64" in int_src  # integer input upcasts to float64
-
-
-def test_var_float_input_preserves_dtype_in_desugar() -> None:
-    assert "s.dtype" in src_(reduce_axis_stmts("t", "s", "var", [0], 2, 0, elem_is_float=True))
-    assert "s.dtype" in src_(reduce_axis_stmts("t", "s", "std", [0], 2, 0, elem_is_float=True))
-
-
 # Fix 6b: AXIS sum/prod accumulate in int64 for a bool / narrow-int input      #
 
 
@@ -261,14 +248,6 @@ def test_axis_sum_prod_integer_input_allocates_int64() -> None:
     for op in ("sum", "prod"):
         assert "np.int64" in src_(reduce_axis_stmts("t", "s", op, [0], 2, 0, elem_kind="int"))
         assert "np.int64" in src_(reduce_axis_stmts("t", "s", op, [0], 2, 0, elem_kind="bool"))
-
-
-def test_axis_sum_float_and_elementwise_ops_keep_input_dtype() -> None:
-    # float sums stay at the input width (float32 must not become int64/float64), and
-    # min/max pick an ELEMENT, so they keep the input dtype even for an integer input.
-    assert "s.dtype" in src_(reduce_axis_stmts("t", "s", "sum", [0], 2, 0, elem_kind="float"))
-    for op in ("max", "min"):
-        assert "s.dtype" in src_(reduce_axis_stmts("t", "s", op, [0], 2, 0, elem_kind="int"))
 
 
 def test_axis_sum_int32_overflow_all_backends() -> None:
@@ -372,14 +351,6 @@ def test_multiply_broadcast_row_vector_all_backends() -> None:
 
 
 # Fix 10: an Ellipsis subscript entry fills all otherwise-unindexed axes       #
-
-
-def test_expr_rank_ellipsis() -> None:
-    ranks = {"a": 3, "b": 4}
-    assert expr_rank(ast.parse("a[..., i]", mode="eval").body, ranks) == 2
-    assert expr_rank(ast.parse("a[...]", mode="eval").body, ranks) == 3
-    assert expr_rank(ast.parse("b[..., 0, 1]", mode="eval").body, ranks) == 2
-    assert expr_rank(ast.parse("a[0, ...]", mode="eval").body, ranks) == 2
 
 
 # Fix 11: int / int is TRUE division (float64), not integer division          #

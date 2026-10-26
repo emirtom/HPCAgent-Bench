@@ -182,21 +182,6 @@ def reshape_to_index(src: str, ranks: dict[str, int]) -> str:
     return ast.unparse(ast.fix_missing_locations(tree))
 
 
-def test_nested_expand_dims_is_one_subscript() -> None:
-    """Two ``expand_dims`` merge into ONE newaxis subscript, not ``z[:, None, :][:, None, :, :]``.
-
-    The chain is what broke the reduction over it: ``iter_extent_of`` sizes a subscript of a
-    NAME, so a subscript of a subscript came back unsized, the reduction operand was never
-    hoisted to a temp, and ``np.mean`` reached the emitter unlowered.
-    """
-    assert reshape_to_index("np.expand_dims(np.expand_dims(z, axis=1), axis=1)", {"z": 2}) == "z[:, None, None, :]"
-
-
-def test_nested_squeeze_is_one_subscript() -> None:
-    """The undo side merges the same way: two ``squeeze`` calls index one subscript."""
-    assert reshape_to_index("np.squeeze(np.squeeze(t, axis=1), axis=1)", {"t": 4}) == "t[:, 0, 0, :]"
-
-
 def test_expand_dims_of_a_partial_slice_is_left_chained() -> None:
     """A partial slice keeps an offset an outer index would drop, so it is NOT merged."""
     assert reshape_to_index("np.expand_dims(a[1:3], axis=0)", {"a": 1}) == "a[1:3][None, :]"

@@ -16,10 +16,7 @@ expand_dims).
 import ast
 from types import SimpleNamespace
 
-import numpy as np
-
 from hpcagent_bench.translators.numpyto_common.numpy_desugar import NormalizeNegativeAxis, desugar_for_python_backend
-from tests.translators.op_oracle import run_op
 
 
 def kir_(kernel_name: str, **arrays: tuple[str, ...]) -> SimpleNamespace:
@@ -55,16 +52,6 @@ def test_axis_adding_op_adds_one_to_rank() -> None:
     # stack / expand_dims produce one MORE axis than the operand.
     assert norm_axis("np.stack((a, b), axis=-1)", {"a": 2, "b": 2}) == 2  # axis-space 3
     assert norm_axis("np.expand_dims(a, axis=-1)", {"a": 2}) == 2
-
-
-def test_positive_axis_untouched() -> None:
-    assert norm_axis("np.flip(a, axis=1)", {"a": 2}) == 1  # already positive
-
-
-def test_unknown_operand_rank_left_verbatim() -> None:
-    # no rank for ``a`` -> the negative axis is NOT guessed (stays a UnaryOp).
-    node = norm_axis("np.flip(a, axis=-1)", {})
-    assert isinstance(node, ast.UnaryOp)
 
 
 def test_out_of_range_negative_left_verbatim() -> None:

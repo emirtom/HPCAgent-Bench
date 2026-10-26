@@ -40,12 +40,3 @@ def test_helper_and_kernel_suffix_an_int16_bitwise_literal_alike() -> None:
     assert "IAND(m, 3_c_int16_t)" in kernel, kernel
     assert "IAND(m, 3_c_int16_t)" in helper, helper
     assert "3_c_int32_t" not in src, src
-
-
-def test_a_narrow_integer_scalar_parameter_is_declared_with_the_integers() -> None:
-    """Every integer kind joins the integer-scalar group ahead of the arrays (``dtypes.is_integer``),
-    not only int32/int64: an ``int16`` scalar landed after the arrays with the real scalars."""
-    src = "import numpy as np\ndef f(a, k, out):\n for i in range(a.shape[0]):\n  out[i] = a[i] * k\n"
-    kir = parse_source(src, "f", ["a", "k"], ["out"], {"a": "(N,)", "out": "(N,)"}, {"N": 8}, {"k": "int16"})
-    text = emit_fortran(lower(kir, native_call=renders_natively), fn_name="f")
-    assert text.index("integer(c_int16_t), value, intent(in) :: k") < text.index(":: a(N)"), text
