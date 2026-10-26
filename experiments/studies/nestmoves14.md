@@ -56,7 +56,7 @@ Ratio = default time / reference time at preset M: whole-program host time, medi
 | [`scattering_self_energies_m3`](../../hpcagent_bench/benchmarks/scientific_computing/dense_linear_algebra/scattering_self_energies_m3/) | HPCAgent-Bench, rewritten | only `(k, E)` is parallel (16 points), and the atom map sits under 3 reduction loops | 5 + collapse | CPU 72 threads | 5.08x |
 | [`conv3d_box`](../../hpcagent_bench/benchmarks/scientific_computing/structured_grids/conv3d_box/) | HPCAgent-Bench, rewritten | 125 scattered reads per grid point, no reuse along the contiguous axis | 5 | CPU 1 thread | 1.89x |
 | [`cloudsc_solver_carry`](../../hpcagent_bench/benchmarks/scientific_computing/structured_grids/cloudsc_solver_carry/) | CloudSC dwarf | the whole 5x5 solver in one column body, so its state stays live across every statement | 7 | CPU 72 threads | 2.86x |
-| [`column_physics`](../../hpcagent_bench/benchmarks/scientific_computing/structured_grids/column_physics/) | synthetic, on CloudSC column structure | GPU loop order on CPU: each column walks the levels at stride `KLON` | 9 | CPU 1 thread | 4.51x |
+| [`column_physics`](../../hpcagent_bench/benchmarks/scientific_computing/structured_grids/column_physics/) | synthetic, on CloudSC column structure | GPU loop order on CPU: each column walks the levels at stride `KLON` | 8 | CPU 1 thread | 4.51x (9-move route; not re-timed) |
 
 Moves counts the stage 2 moves of the reference, not the `finish_moves()` calls. "Collapse" means the reference kernel is built with `#pragma omp parallel for collapse(3)`, against the default's best build `collapse(2)`.
 
@@ -159,7 +159,7 @@ Labels such as `kernel2_0` are from the measured runs and change between version
 ### `column_physics`
 
 - **Program:** a column model in the GPU order, column loop outermost: a cloud-cover recurrence and a tracer recurrence down the levels, then a carried diagnostic pass.
-- **Solution (CPU, 1 thread):** nine moves in dependent order. `subgraph-fission`, `interchange-map-loop` (tracers), `map-fission`, `interchange-map-loop` (cover), `loop-fusion`, `interchange-map-map`, then three `map-fusion`. Four of the first six gain nothing alone and only make a later move legal. 4.51x.
+- **Solution (CPU, 1 thread):** eight moves in dependent order. `subgraph-fission`, `interchange-map-loop` (tracers), `map-fission`, `interchange-map-loop` (cover), `loop-fusion`, `interchange-map-map`, then two `map-fusion` (at DaCe `042413d` a third `map-fusion` was offered and taken; from `8a4d824` on, none is offered after the second and the eight-move program matches the reference). Four of the first six gain nothing alone and only make a later move legal. 4.51x with the nine-move route of 2026-10-23.
 - **Decoys:** re-fusing cover and tracers, which is what the default does (1.07x); the tracer GPU order (0.55x); stopping after four moves (3.39x); the undo after the route (3.43x).
 
 ## Measurement
@@ -193,6 +193,6 @@ solutions above name every move by what it reads and writes. `collapse`: the CPU
   "cloudsc_solver_carry": {"moves": 7, "device": "cpu", "threads": 72, "collapse": 0, "ratio": 2.86, "reference": [["loop-fission", ["for2_0"]], ["subgraph-fission", ["kernel1_0", "state2_0"]], ["map-fission", ["kernel1_2"]], ["map-fission", ["kernel2_4"]], ["interchange-map-map", ["kernel2_0", "kernel3_1"]], ["interchange-map-map", ["kernel2_1", "kernel3_2"]], ["interchange-loop-map", ["for2_0", "kernel4_0"]], "finish"]},
   "conv3d_box": {"moves": 5, "device": "cpu", "threads": 1, "collapse": 0, "ratio": 1.89, "reference": [["map-fission", ["kernel3_0"]], ["interchange-map-loop", ["kernel4_1", "for5_0"]], ["map-fission", ["kernel2_0"]], ["interchange-map-loop", ["kernel3_1", "for4_0"]], ["interchange-map-loop", ["kernel6_0", "for7_0"]], "finish"]},
   "dbcsr_small_blocks": {"moves": 1, "device": "cpu", "threads": 1, "collapse": 0, "ratio": 2.53, "reference": [["interchange-loop-if", ["for1_0", "if2_0"]], "finish"]},
-  "column_physics": {"moves": 9, "device": "cpu", "threads": 1, "collapse": 0, "ratio": 4.51, "reference": [["subgraph-fission", ["kernel1_0", "state2_0"]], ["interchange-map-loop", ["kernel1_2", "for2_1"]], ["map-fission", ["kernel2_0"]], ["interchange-map-loop", ["kernel1_1", "for2_0"]], ["loop-fusion", ["for0_0", "for0_1"]], ["interchange-map-map", ["kernel3_0", "kernel4_0"]], ["map-fusion", ["kernel2_1", "kernel2_2"]], ["map-fusion", ["kernel2_1", "kernel2_2"]], ["map-fusion", ["kernel2_1", "kernel2_2"]], "finish"]}
+  "column_physics": {"moves": 8, "device": "cpu", "threads": 1, "collapse": 0, "ratio": 4.51, "reference": [["subgraph-fission", ["kernel1_0", "state2_0"]], ["interchange-map-loop", ["kernel1_2", "for2_1"]], ["map-fission", ["kernel2_0"]], ["interchange-map-loop", ["kernel1_1", "for2_0"]], ["loop-fusion", ["for0_0", "for0_1"]], ["interchange-map-map", ["kernel3_0", "kernel4_0"]], ["map-fusion", ["kernel2_1", "kernel2_2"]], ["map-fusion", ["kernel2_1", "kernel2_2"]], "finish"]}
 }
 ```
