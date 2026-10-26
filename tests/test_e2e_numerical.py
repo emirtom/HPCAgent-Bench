@@ -4,7 +4,6 @@
 
 import functools
 import os
-import pathlib
 from collections.abc import Iterator
 
 import numpy as np
@@ -27,6 +26,7 @@ from hpcagent_bench.numerical_oracle import (
     run_kernel,
 )
 from hpcagent_bench.spec import KERNELS, BenchSpec
+from tests.translators.bench_yaml import COVERAGE_SET_FILE, coverage_set
 
 #: Backends fed DIRECTLY by the static translators' native emit, so a MISSING_EMIT_FEATURE entry
 #: excuses these and only these. numba emits independently and must still pass for a
@@ -245,18 +245,6 @@ def _result(stem: str) -> dict:
         res = run_kernel(stem, Preset.S, precision=E2E_PRECISION, only_backends=frozenset(E2E_BACKENDS))
         _CACHE[stem] = res
     return _CACHE[stem]
-
-
-#: Kernels whose translator emit coverage, together, equals the whole corpus's -- measured, not
-#: chosen by name (helpers/scripts/select_e2e_kernels.py). 77 of 640 kernels reach 13664 of 13664 emit lines,
-#: because the corpus holds 151 tsvc_2_s* variants, 27 matmul and 22 gemm that are distinct
-#: BENCHMARKS but drive identical translation: not one tsvc kernel earns a place here.
-COVERAGE_SET_FILE = pathlib.Path(__file__).with_name("e2e_coverage_set.txt")
-
-
-def coverage_set() -> frozenset[str]:
-    lines = COVERAGE_SET_FILE.read_text().splitlines()
-    return frozenset(s.strip() for s in lines if s.strip() and not s.startswith("#"))
 
 
 def level_3_stems() -> set[str]:
@@ -560,8 +548,7 @@ def test_the_full_ci_sweep_runs_numba_over_every_kernel() -> None:
     own = [s for s in sweeps if (s.get("env") or {}).get("HPCAGENT_BENCH_E2E_BACKENDS") == "${{ matrix.leg.backend }}"]
     assert own, "no e2e step sweeps each leg's own backend"
     assert all(str(s.get("if", "")).strip() == "${{ !cancelled() }}" for s in own), "a leg's own sweep is conditional"
-    for step in sweeps:
-        env = step.get("env") or {}
-        assert "workflow_dispatch' && '0'" in str(env.get("HPCAGENT_BENCH_E2E_SUBSET")), (
-            "a dispatched run must sweep the whole corpus, not the per-push slice"
-        )
+    assert "workflow_dispatch' && '0'" in str(workflow["env"].get("HPCAGENT_BENCH_E2E_SUBSET")), (
+        "a dispatched run must sweep the whole corpus, not the per-push slice"
+    )
+    assert not [s for s in sweeps if "HPCAGENT_BENCH_E2E_SUBSET" in (s.get("env") or {})], "a step overrides the slice"

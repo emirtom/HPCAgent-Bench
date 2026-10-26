@@ -36,6 +36,11 @@ KERNELBENCH_TAG = "kernelbench"
 #: miscompile fixes (contraction extent, elementwise ufunc arg, parameter write-through).
 MIN_TRANSLATING = 121
 
+#: Per push (``HPCAGENT_BENCH_E2E_SUBSET=1``) every :data:`SAMPLE_STRIDE`-th port, with its own floor; a dispatched run, all.
+SAMPLE = os.environ.get("HPCAGENT_BENCH_E2E_SUBSET", "") == "1"
+SAMPLE_STRIDE = 10
+MIN_TRANSLATING_SAMPLE = 21
+
 #: Per-kernel wall clock. Every port that translates finishes within 31 s on one core (measured over all
 #: 250 at preset S); the ones that run longer are the large CNNs (densenet, resnet101, googlenet), none of
 #: which translates, and at 300 s they alone would spend most of the CI step's budget.
@@ -89,7 +94,8 @@ def test_the_subtrack_is_still_registered() -> None:
 
 @pytest.mark.integration
 def test_at_least_the_pinned_number_of_ports_translate() -> None:
-    stems = kernelbench_stems()
+    stems = kernelbench_stems()[::SAMPLE_STRIDE] if SAMPLE else kernelbench_stems()
+    floor = MIN_TRANSLATING_SAMPLE if SAMPLE else MIN_TRANSLATING
 
     def probe(stem: str) -> tuple[str, bool]:
         try:
@@ -105,11 +111,11 @@ def test_at_least_the_pinned_number_of_ports_translate() -> None:
     # ports can stop translating and this still passes -- which is exactly the silent come-down the
     # docstring says must not happen. Until the floor is tightened, the log is what makes a drop
     # visible.
-    print(f"kernelbench ports translating: {len(passing)}/{len(stems)} (floor {MIN_TRANSLATING})")
+    print(f"kernelbench ports translating: {len(passing)}/{len(stems)} (floor {floor})")
     if failing:
         print("not translating: " + " ".join(sorted(failing)))
-    assert len(passing) >= MIN_TRANSLATING, (
-        f"{len(passing)}/{len(stems)} kernelbench ports translate, floor is {MIN_TRANSLATING}. "
+    assert len(passing) >= floor, (
+        f"{len(passing)}/{len(stems)} kernelbench ports translate, floor is {floor}. "
         f"A DROP means a translator regression -- the first few that stopped working: "
         f"{sorted(set(failing))[:8]}"
     )
