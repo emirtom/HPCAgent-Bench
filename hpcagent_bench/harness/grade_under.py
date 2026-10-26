@@ -24,7 +24,7 @@ import pydantic
 import pydantic.dataclasses
 import yaml
 
-from hpcagent_bench import anticheat, config, experiments, paths, protocols
+from hpcagent_bench import anticheat, config, experiments, languages, paths, protocols
 from hpcagent_bench.results import owed
 from hpcagent_bench.results import recorded_rows
 from hpcagent_bench.api import RunConfig
@@ -804,8 +804,14 @@ def submission_of(item: Item) -> Submission:
     if item.source_hash and units["host"][2] != item.source_hash:
         raise LookupError(f"{item.db}: grade {item.grade_id} is no longer the source the worklist listed")
     device = units.get("device")
+    language = delivered_language(item.language)
+    if device is None and language in languages.GPU_HOST_LANG:
+        # A GPU grade stores both units (a single-unit delivery its stub host too): no device unit is a lost half.
+        raise ValueError(
+            f"{item.db}: grade {item.grade_id} stored no 'device_source' unit of its {language.text} delivery"
+        )
     return Submission(
-        language=delivered_language(item.language),
+        language=language,
         source=units["host"][1],
         device_source=device[1] if device is not None else None,
         build=list(item.build),
