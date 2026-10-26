@@ -169,7 +169,10 @@ def run_framework_sweep(
             raise ValueError("skip_existing reads the canon DB of one framework: pass --canon-db and one --framework")
         benchnames = filter_out_completed_benchmarks(canon, framework, preset, datatype or "float64", benchnames)
 
-    framework_names = [framework] if isinstance(framework, str) else list(framework)
+    # An alias (``c`` for ``cc``) runs the column it names, and its rows record that column's key.
+    framework_names = [
+        FRAMEWORKS.canonical(name) for name in ([framework] if isinstance(framework, str) else framework)
+    ]
 
     # Fork EACH kernel so a crash or framework exception in one cannot take down the sweep.
     failed = []
