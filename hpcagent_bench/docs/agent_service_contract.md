@@ -37,9 +37,11 @@ Locally, the judge alone serves the same routes.
 ```
 
 - Code arrives as `source` (inline), `source_file` (a path in the shared mount, basename
-  `<kernel>.<ext>`) or `library` (a prebuilt `.so`, when `input_mode` allows it).
+  `<kernel>.<ext>`, or any name when it is the only `*.<ext>` file in its folder) or `library` (a
+  prebuilt `.so`, when `input_mode` allows it).
 - A `cuda` or `hip` submission adds its device half as `device_source` or `device_source_file`,
-  exactly one of the two.
+  at most one of the two. Without a device half, `source` / `source_file` is one unit holding the
+  entry point and the kernels, built by the device compiler.
 - `build` carries extra `-I`/`-D`/`-L`/`-l` tokens; the judge owns optimization and `-march`
   flags (`GET /build` shows them).
 - `workspace_bytes` requests untimed scratch passed as the trailing `workspace`/`workspace_size`
