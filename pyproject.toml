@@ -176,7 +176,7 @@ dev = [
 # extra. 1.106 is the first litellm whose proxy takes mcp 2.x (hpcagent_agent.mcp_sdk). litellm's proxy stack
 # pins rich<14, so harbor>=0.23 never shares its environment.
 judge-proxy = [
-    "litellm[proxy]==1.106.4",
+    "litellm[proxy]==1.106.4",  # the proxy stack the recorded setups ran
     "httpx2==2.12.0",  # the proxy stack the recorded setups ran
     "anyio==4.14.2",  # the proxy stack the recorded setups ran
 ]
