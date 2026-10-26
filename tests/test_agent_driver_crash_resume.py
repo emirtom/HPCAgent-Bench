@@ -196,6 +196,7 @@ def runner_spawner(
         calls, reason, code = RUNNER_LEGS[len(launches)]
         launches.append(list(command))
         usage = pathlib.Path(env["HPCAGENT_BENCH_USAGE_PATH"])
+        assert not (usage.parent / "harness-end.json").exists(), "a resumed leg starts without the ended leg's end"
         with usage.open("a", encoding="utf-8") as handle:
             for prompt, completion in calls:
                 handle.write(json.dumps({"input": prompt, "cached_input": 0, "output": completion, "reasoning": 0}))

@@ -2772,6 +2772,9 @@ def run_agent(
                     # The next leg appends to this log; its result event counts only its own turns.
                     leg_turns = harness.closing(workdir).turns
                     nudge_turns += leg_turns
+                    # A runner's end record is the ended leg's: a next leg killed before writing its own must not
+                    # read it as its closing.
+                    (workdir / harnesses.END_FILE).unlink(missing_ok=True)
                     log.flush()
                     before = log_path.stat().st_size
                     if resuming:
