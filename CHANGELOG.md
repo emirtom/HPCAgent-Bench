@@ -12,7 +12,7 @@ The OpenHands harness is removed; `mcp>=2.3` is required.
 ### Fixed
 - Submission contract: a GPU language takes one unit, and a sole source file need not carry the kernel's name.
 - numpyto_c: a deferred buffer bound in sibling branches is allocated in each (warpx reference SIGSEGV).
-- An installed `hpcagent-agent` serves its tools on mcp 1.x and 2.x.
+- An installed `hpcagent-agent` ships its submission-mode templates and serves its tools (mcp 2.x).
 - Runner resume: crashed agents resume in place, a dropped connection resumes, and a resumed leg starts without the
   ended leg's end record; the crash-resume prompt names the reply-cap cut-off.
 - Diagnostics: `prepare` warms the setup's reference language; `run-framework` resolves aliases, also under
