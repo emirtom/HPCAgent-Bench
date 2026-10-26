@@ -10,7 +10,6 @@ A reply cut off at ``max_tokens`` is continued (:data:`CONTINUE_NOTE`); a cut-of
 
 import asyncio
 import contextlib
-import datetime
 import json
 import os
 import pathlib
@@ -18,6 +17,7 @@ import sys
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from hpcagent_agent import mcp_sdk
 from hpcagent_agent.harness import runner_common, subagents
 
 __all__ = [
@@ -108,7 +108,7 @@ async def open_tools(
     for server in servers.values():
         read, write = await stack.enter_async_context(stdio_client(StdioServerParameters(**server)))
         session = await stack.enter_async_context(
-            ClientSession(read, write, read_timeout_seconds=datetime.timedelta(seconds=wait))
+            ClientSession(read, write, read_timeout_seconds=mcp_sdk.read_timeout(wait))  # type: ignore[arg-type]  # float on 2.x, timedelta on 1.x
         )
         await session.initialize()
         for tool in (await session.list_tools()).tools:

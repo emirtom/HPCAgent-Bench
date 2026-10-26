@@ -1,7 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The submission mode of a setup (``AGENT_SUBMISSION_MODE``): ``multi`` (unlimited), ``single`` (one) or ``blind``
-(one, no ``score``/``profile``, the write folder graded at cut-off). Its template ``agent/submission-<mode>.md`` fills
+(one, no ``score``/``profile``, the write folder graded at cut-off). Its template ``hpcagent_agent/templates/submission-<mode>.md``
+fills
 the ``{{MODE:<section>}}`` slots; every component reads the mode from here, so prompt and enforcement agree."""
 
 import enum
@@ -12,7 +13,10 @@ from collections.abc import Mapping
 
 from hpcagent_agent.coded import Coded
 
-__all__ = ["KEY", "SECTION", "SLOT", "SubmissionMode", "current", "fill_slots", "template_sections"]
+__all__ = ["KEY", "SECTION", "SLOT", "TEMPLATES", "SubmissionMode", "current", "fill_slots", "template_sections"]
+
+#: The mode templates, shipped inside the package so an installed ``hpcagent-agent`` serves its tools.
+TEMPLATES = pathlib.Path(__file__).resolve().parent / "templates"
 
 #: The setup key that names the mode (``experiments/layers/common.env`` sets single).
 KEY = "AGENT_SUBMISSION_MODE"
@@ -47,8 +51,13 @@ class SubmissionMode(Coded):
 
     @property
     def template(self) -> str:
-        """The prompt template of this mode, under the agent payload directory."""
+        """The file name of this mode's template (:data:`TEMPLATES`)."""
         return f"submission-{self.text}.md"
+
+    @property
+    def template_path(self) -> pathlib.Path:
+        """This mode's template as the package ships it."""
+        return TEMPLATES / self.template
 
 
 def current(environ: dict[str, str] | None = None) -> SubmissionMode:

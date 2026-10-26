@@ -17,7 +17,8 @@ requires-python = ">=3.12"
 license = "GPL-3.0-or-later"
 authors = [{ name = "SPCL @ ETH Zurich", email = "yakupkoray.budanaz@inf.ethz.ch" }]
 dependencies = [
-    "mcp>=1.30",
+    # 1.x and 2.x both (hpcagent_agent.mcp_sdk): the openhands harness's fastmcp 3 needs mcp<2.
+    "mcp>=1.30,<3",
     "pydantic>=2.12",
 ]
 
@@ -30,8 +31,8 @@ harness-miniswe = [
     "mini-swe-agent==2.4.6",  # the harness the recorded miniswe setups ran
 ]
 harness-openhands = [
-    "openhands-sdk==1.55.1",
-    "openhands-tools==1.55.1",
+    "openhands-sdk==1.58.2",
+    "openhands-tools==1.58.2",
 ]
 # The native-API runners: each vendor's SDK as an MCP client of the one benchmark MCP server.
 harness-anthropic = [
