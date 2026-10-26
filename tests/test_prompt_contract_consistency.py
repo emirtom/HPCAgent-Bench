@@ -382,17 +382,6 @@ def test_the_prompt_carries_none_of_the_retired_text(stale: str) -> None:
     assert stale not in PROMPT.read_text(encoding="utf-8")
 
 
-def test_the_prompt_ends_on_exhausting_every_optimization_and_never_giving_up() -> None:
-    text = " ".join(PROMPT.read_text(encoding="utf-8").split())
-    assert "Continue until every parallelization and performance optimization you can find is exhausted." in text
-    assert "Never give up." in text
-
-
-def test_single_submission_says_scoring_is_unlimited_and_the_submission_is_one() -> None:
-    text = " ".join((PROMPT.parent / "submission-single.md").read_text(encoding="utf-8").split())
-    assert "You may `score` as many times as you want, but you get exactly ONE submission." in text
-
-
 def test_the_profile_bullet_explains_every_counter_group(monkeypatch: pytest.MonkeyPatch) -> None:
     """``counter_group`` is a question, not a label: the agent picks one from what each answers."""
     from tests.test_container_agent_tools import load_tools

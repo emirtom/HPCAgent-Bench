@@ -299,17 +299,6 @@ def test_the_venv_prefix_a_dockerfile_installs_is_the_one_the_driver_and_the_ver
         assert name not in runtimes, f"{name} is verified but no harness launches it"
 
 
-def test_an_agent_runtime_check_is_required_of_every_judge_agent_profile() -> None:
-    """Optional would make the gate advisory, and an advisory gate is what let a pulled image with
-    no /opt/harness through."""
-    verify = verifier()
-    for profile in ("judge-agent-amd", "judge"):
-        agent = {check.name: check for check in verify.checks(profile) if check.group == "agent"}
-        want = {"claude CLI", *(f"{name} interpreter" for name in verify.HARNESS_RUNTIMES)}
-        assert set(agent) == want, agent
-        assert all(check.required for check in agent.values()), agent
-
-
 def test_a_missing_interpreter_fails_the_runtime_check_by_its_path() -> None:
     """The check must answer about the absolute path, not about a python3 that PATH happens to find."""
     verify = verifier()

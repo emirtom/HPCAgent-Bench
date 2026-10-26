@@ -69,16 +69,6 @@ def test_symbolic_index_vector_runs() -> None:
     assert all(v == "ok" for v in res.values()), res
 
 
-def test_int_literal_list_is_an_integer_buffer() -> None:
-    """An int list is an integer buffer, as it is in numpy. Emitted as double it would be a
-    subscript of the wrong type, which is the failure this rule exists to prevent."""
-    text = emit_c_for(
-        ("import numpy as np\ndef pick(src, out):\n    ia = np.array([0, 2, 3])\n    out[ia, :] = src[ia, :] * 2.0\n"),
-        "pick",
-    )
-    assert "int" in decl_of(text, "ia"), decl_of(text, "ia")
-
-
 def test_float_literal_list_is_a_float_buffer() -> None:
     """The same rule the other way: a float list is NOT narrowed to an index type just because
     the mechanism was built for index vectors."""

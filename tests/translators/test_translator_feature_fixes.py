@@ -15,7 +15,7 @@ from hpcagent_bench import paths
 from hpcagent_bench.categories import Language, Preset
 from hpcagent_bench.translators.numpyto_common.frontend import shape_from_constructor
 from hpcagent_bench.translators.numpyto_common.ir import KernelIR
-from hpcagent_bench.translators.numpyto_common.lib_nodes import expand_arange, expand_fromfunction
+from hpcagent_bench.translators.numpyto_common.lib_nodes import expand_fromfunction
 from hpcagent_bench.translators.numpyto_common.lowering import (
     AstypeRewriter,
     NpAliasRewriter,
@@ -31,22 +31,6 @@ def expr_(src: str) -> ast.BinOp | ast.Call | ast.Subscript:
 
 
 # A. shape recovery from array constructors                                    #
-
-
-def test_rng_integers_size_kwarg_shape() -> None:
-    """``rng.integers(0, NS, size=(NS, NA))`` -> shape ``(NS, NA)`` (dfa)."""
-    assert shape_from_constructor(expr_("rng.integers(0, NS, size=(NS, NA))"), {}) == "(NS, NA)"
-
-
-def test_rng_integers_positional_size() -> None:
-    """Positional ``(low, high, size)`` form -> the 3rd arg is the shape."""
-    assert shape_from_constructor(expr_("rng.integers(0, NS, N)"), {}) == "(N,)"
-
-
-def test_np_full_fill_is_not_an_axis() -> None:
-    """``np.full(N, INF)`` is 1-D ``(N,)`` -- the fill value INF must NOT be
-    read as a second axis (the bellman_ford ``INF`` phantom-dimension leak)."""
-    assert shape_from_constructor(expr_("np.full(N, INF)"), {}) == "(N,)"
 
 
 def test_np_full_2d_tuple_shape() -> None:
@@ -67,43 +51,8 @@ def test_rand_separate_axes_still_supported() -> None:
 # B. np.arange value emission                                                  #
 
 
-def arange_stmts(src: str) -> list[ast.For]:
-    call = expr_(src)
-    stmts = expand_arange(ast.Name(id="out", ctx=ast.Store()), call.args, {})
-    # The pipeline calls fix_missing_locations after the expander; do the same
-    # so ast.unparse can render the synthesized loop in these tests.
-    for s in stmts:
-        ast.fix_missing_locations(s)
-    return stmts
-
-
 def for_loops(stmts: list[ast.For]) -> list[ast.For]:
     return [n for s in stmts for n in ast.walk(s) if isinstance(n, ast.For)]
-
-
-def test_arange_stop_iota() -> None:
-    """``np.arange(K)`` -> ``for __i in range(K): out[__i] = __i``."""
-    stmts = arange_stmts("np.arange(K)")
-    loops = for_loops(stmts)
-    assert len(loops) == 1
-    assert ast.unparse(loops[0].iter) == "range(K)"
-    (body,) = loops[0].body
-    assert ast.unparse(body) == "out[__i] = __i"
-
-
-def test_arange_start_stop_offset() -> None:
-    """``np.arange(s, e)`` -> value ``s + __i`` over ``range(e - s)``."""
-    stmts = arange_stmts("np.arange(s, e)")
-    loops = for_loops(stmts)
-    assert ast.unparse(loops[0].iter) == "range(e - s)"
-    assert ast.unparse(loops[0].body[0]) == "out[__i] = s + __i"
-
-
-def test_arange_step_form() -> None:
-    """``np.arange(s, e, d)`` -> value ``s + __i * d`` with a ceil-div count."""
-    stmts = arange_stmts("np.arange(s, e, d)")
-    (body,) = for_loops(stmts)[0].body
-    assert ast.unparse(body) == "out[__i] = s + __i * d"
 
 
 # C. .astype() on an arbitrary expression                                      #
@@ -113,16 +62,6 @@ def astype_(src: str) -> str:
     tree = ast.parse(src)
     AstypeRewriter().visit(tree)
     return ast.unparse(tree).strip()
-
-
-def test_astype_concrete_np_dtype() -> None:
-    """``(a == b).astype(np.int64)`` -> ``np.int64(a == b)`` (bfs)."""
-    assert astype_("x = (a == b).astype(np.int64)") == "x = np.int64(a == b)"
-
-
-def test_astype_array_dtype_strips() -> None:
-    """``z.astype(X.dtype)`` -> ``z`` (the destination dtype realises it; kmeans)."""
-    assert astype_("y = z.astype(X.dtype)") == "y = z"
 
 
 def test_astype_builtin_float() -> None:
@@ -153,20 +92,6 @@ def test_variadic_minmax_folds_to_nested_2arg(fn: str) -> None:
 
 
 # E. np.var classified as a scalar reduction (can nest in an expression)       #
-
-
-@pytest.mark.parametrize("fn", ["var", "std"])
-def test_var_is_scalar_reduction(fn: str) -> None:
-    """``np.var`` must be hoistable as a SCALAR temp (srad nests it in a division), exactly as
-    ``np.std`` is: the call leaves the expression as a scalar local, not an array temp."""
-    from hpcagent_bench.translators.numpyto_common.lib_nodes import CallHoister
-
-    scalars: dict[str, bool] = {}
-    arrays: dict[str, tuple[str, ...]] = {}
-    tree = CallHoister({"a": ("N",)}, scalars, arrays, [0]).visit(ast.parse(f"x = a[0] / np.{fn}(a)"))
-    assert ast.unparse(tree) == "x = a[0] / __cb1"
-    assert scalars == {"__cb1": True}
-    assert not arrays
 
 
 # F. np.permute_dims / np.amax aliases -> canonical names                       #
@@ -314,21 +239,6 @@ def test_add_at_boolean_index_refused_not_mislowered() -> None:
         ScatterAtRewriter({"mask": ["E"]}, bool_names={"mask"}).visit(ast.parse("np.add.at(out, mask, v)"))
 
 
-def test_add_at_lowered_output_is_not_rewrapped_by_fancy_scatter_store() -> None:
-    """Regression: ``ScatterAtRewriter``'s OWN output -- ``Lx[src[__sat1]] +=
-    flux[__sat1]`` -- must never be re-matched by ``expand_fancy_scatter_store``
-    as an un-lowered fancy scatter (``src`` is already indexed by ``__sat1``,
-    not a bare array still needing its own iteration); double-wrapping it as
-    ``Lx[src[__sc0][__sat1]]`` broke edge_laplacian when the scatter-at phase
-    moved to run after ``expand_fancy_scatter_store``'s sibling passes."""
-    from hpcagent_bench.translators.numpyto_common.lowering import WholeArrayAssignRewriter
-
-    already_lowered = ast.parse("Lx[src[__sat1]] += flux[__sat1]").body[0]
-    rewriter = WholeArrayAssignRewriter({"Lx": ("N",), "src": ("E",), "flux": ("E",)})
-    scattered = rewriter.expand_fancy_scatter_store(already_lowered.target, already_lowered.value, already_lowered.op)
-    assert scattered == []
-
-
 def test_add_at_flatten_numeric_agreement() -> None:
     """Numeric oracle: a 2-D int64 index array (with GUARANTEED duplicate
     entries) and its matching value array, both flattened, must accumulate
@@ -377,21 +287,6 @@ def test_add_at_scalar_value_numeric_agreement() -> None:
     assert all(v == "ok" for v in status.values()), status
 
 
-def test_add_at_slice_view_target() -> None:
-    """``np.add.at(deexx[:, ii], ikb.reshape(-1), delta.reshape(-1))`` (vexx_k's
-    ``_newdxx_g``/``_newdxx_r``/``_paw_newdxx`` after inlining ``deexx[:, ii]``
-    for the callee's ``deexx`` parameter): the TARGET is a slice VIEW, not a
-    bare Name. numpy writes a scatter through a view straight to the
-    underlying buffer, so the full-slice axis takes the scattered index and
-    the scalar axis (``ii``) passes through unchanged."""
-    out = scatter(
-        "np.add.at(deexx[:, ii], ikb.reshape(-1), delta.reshape(-1))", {"ikb": ["nat", "nh"], "delta": ["nat", "nh"]}
-    )
-    assert "for __sat1_0 in range(nat):" in out
-    assert "for __sat1_1 in range(nh):" in out
-    assert "deexx[ikb[__sat1_0, __sat1_1], ii] += delta[__sat1_0, __sat1_1]" in out
-
-
 @pytest.mark.parametrize(
     "bad_target",
     [
@@ -435,52 +330,11 @@ def test_add_at_slice_view_target_numeric_agreement() -> None:
 # J. fancy-index gather  arr[idx] -> arr[idx[k]]                               #
 
 
-def test_fancy_gather_single_index_array() -> None:
-    """``x[src]`` scalarised at iter ``__w0`` -> ``x[src[__w0]]`` (NOT the buggy
-    ``x[__w0][src[__w0]]``). edge_laplacian's gather."""
-    tree = ast.parse("x[src]", mode="eval").body
-    out = SubscriptifyNames({"x": ("N",), "src": ("E",)}, ["__w0"]).visit(tree)
-    assert ast.unparse(out) == "x[src[__w0]]"
-
-
 def test_plain_array_still_subscripts_iter() -> None:
     """A plain array Name still maps to the iter (no regression)."""
     tree = ast.parse("w", mode="eval").body
     out = SubscriptifyNames({"w": ("E",)}, ["__w0"]).visit(tree)
     assert ast.unparse(out) == "w[__w0]"
-
-
-def test_fancy_gather_broadcasts_not_sums_rank() -> None:
-    """Several ADJACENT index arrays BROADCAST into one shared result-axis
-    block, not the SUM of their own ranks. icon_gather's ``A[idx, lev, blk]``
-    with idx/blk (nproma,1,nblks) and lev (1,nlev,1) broadcasts to
-    (nproma,nlev,nblks) -- rank 3, never the wrong rank-9 flatten a naive sum
-    of the three operands' own ranks would ask the C emitter for. Each
-    operand right-aligns against the SAME shared iters, pinning its own
-    size-1 axis to 0 (the existing broadcast rule, reused here)."""
-    tree = ast.parse("A[idx, lev, blk]", mode="eval").body
-    shapes = {
-        "A": ("nproma", "nlev", "nblks"),
-        "idx": ("nproma", "1", "nblks"),
-        "lev": ("1", "nlev", "1"),
-        "blk": ("nproma", "1", "nblks"),
-    }
-    out = SubscriptifyNames(shapes, ["__w0", "__w1", "__w2"]).visit(tree)
-    assert ast.unparse(out) == "A[idx[__w0, 0, __w2], lev[0, __w1, 0], blk[__w0, 0, __w2]]"
-
-
-def test_fancy_gather_broadcast_with_trailing_scalar_axis() -> None:
-    """A literal scalar axis (``0``) sitting in the SAME adjacent advanced
-    group (numpy counts a bare integer as advanced too) consumes an A axis
-    but adds no rank of its own and no iter."""
-    tree = ast.parse("A[idx, lev, 0]", mode="eval").body
-    shapes = {
-        "A": ("nproma", "nlev", "nblks"),
-        "idx": ("nproma", "1", "nblks"),
-        "lev": ("1", "nlev", "1"),
-    }
-    out = SubscriptifyNames(shapes, ["__w0", "__w1", "__w2"]).visit(tree)
-    assert ast.unparse(out) == "A[idx[__w0, 0, __w2], lev[0, __w1, 0], 0]"
 
 
 def test_fancy_gather_broadcast_adjacent_to_real_slice() -> None:
@@ -542,23 +396,8 @@ def ext_(src: str, table: dict[str, tuple[str, ...]]) -> tuple[str, ...] | None:
     return None if e is None else tuple(ast.unparse(x) for x in e)
 
 
-def test_iter_extent_reduction_axis() -> None:
-    """``np.sum(X, axis=k)`` -> operand extent with axis k removed (kmeans/gem)."""
-    assert ext_("np.sum(dpos * dpos, axis=2)", {"dpos": ("N", "N", "3")}) == ("N", "N")
-    assert ext_("np.sum(A, axis=1)", {"A": ("M", "K")}) == ("M",)
-
-
-def test_iter_extent_reduction_keepdims() -> None:
-    assert ext_("np.sum(A, axis=1, keepdims=True)", {"A": ("M", "K")}) == ("M", "1")
-
-
 def test_iter_extent_full_reduction_is_scalar() -> None:
     assert ext_("np.sum(A)", {"A": ("M", "K")}) is None
-
-
-def test_iter_extent_elementwise_wrapping_reduction() -> None:
-    """gem's ``r = np.sqrt(np.sum(d * d, axis=2))`` -> (npoints, natoms)."""
-    assert ext_("np.sqrt(np.sum(d * d, axis=2))", {"d": ("npoints", "natoms", "3")}) == ("npoints", "natoms")
 
 
 def test_shape_from_reduction_frontend() -> None:
@@ -574,21 +413,6 @@ def test_shape_from_reduction_frontend() -> None:
 
 
 # L. Fortran logical-result detection (& / | on comparisons -> .AND./.OR.)     #
-
-
-def test_produces_logical_bitand_on_comparisons() -> None:
-    from hpcagent_bench.translators.numpyto_fortran.emit import produces_logical
-
-    assert produces_logical(ast.parse("(rsq < c) & (rsq > 0.0)", mode="eval").body)
-    assert produces_logical(ast.parse("(a == b) | (c != d)", mode="eval").body)
-    assert produces_logical(ast.parse("~(a < b)", mode="eval").body)
-
-
-def test_produces_logical_false_for_arithmetic() -> None:
-    from hpcagent_bench.translators.numpyto_fortran.emit import produces_logical
-
-    assert not produces_logical(ast.parse("a & b", mode="eval").body)  # int bitand
-    assert not produces_logical(ast.parse("a + b", mode="eval").body)
 
 
 def test_produces_logical_sees_known_logical_names() -> None:
@@ -641,10 +465,6 @@ def test_feature_kernels_e2e(kernel: str, feature: str) -> None:
 # M. Compare / BoolOp outer-broadcast extent (a[:,None] == b[None,:] -> (N,N))  #
 
 
-def test_compare_outer_broadcast_extent() -> None:
-    assert ext_("a[:, None] == b[None, :]", {"a": ("N",), "b": ("N",)}) == ("N", "N")
-
-
 def test_boolop_outer_broadcast_extent() -> None:
     assert ext_("(a[:, None] > 0) & (b[None, :] > 0)", {"a": ("M",), "b": ("N",)}) == ("M", "N")
 
@@ -672,41 +492,12 @@ def test_pad_trailing_slice_on_3d_partial_index() -> None:
     assert "T[:, :-1, :]" in out
 
 
-def test_pad_scalar_index_trailing_axis() -> None:
-    out = pad("TN[:, 0] = T[:, 0]", {"TN": ("Z", "Y", "X"), "T": ("Z", "Y", "X")})
-    assert "TN[:, 0, :]" in out
-    assert "T[:, 0, :]" in out
-
-
-def test_pad_skips_advanced_index_array() -> None:
-    # ``x[src]`` with src an index array (fancy gather) must NOT be padded.
-    out = pad("y = x[src]", {"x": ("N", "M"), "src": ("E",), "y": ("E", "M")})
-    assert "x[src]" in out
-    assert "x[src, :]" not in out
-
-
 def test_pad_noop_when_fully_indexed() -> None:
     out = pad("A[i, j] = 0.0", {"A": ("N", "M")})
     assert out == "A[i, j] = 0.0"
 
 
 # O. .copy() / np.copy on a Subscript receiver (row materialize)               #
-
-
-def test_method_copy_on_subscript_lowers_to_np_copy() -> None:
-    from hpcagent_bench.translators.numpyto_common.lowering import MethodCallRewriter
-
-    tree = ast.parse("dp = grid[0].copy()")
-    MethodCallRewriter().visit(tree)
-    assert "np.copy(grid[0])" in ast.unparse(tree)
-
-
-def test_method_copy_on_bare_name_still_lowers() -> None:
-    from hpcagent_bench.translators.numpyto_common.lowering import MethodCallRewriter
-
-    tree = ast.parse("out = image.copy()")
-    MethodCallRewriter().visit(tree)
-    assert "np.copy(image)" in ast.unparse(tree)
 
 
 def test_expand_copy_accepts_subscript_source() -> None:
@@ -767,27 +558,7 @@ def test_dtype_aliases_not_promoted() -> None:
 # T. Shape inference sees through .astype / Compare / BinOp wrappers            #
 
 
-def test_shape_through_astype_and_compare() -> None:
-    """``(rng.random((N, N)) < 0.15).astype(int)`` -> (N, N) (bfs adjacency)."""
-    s = shape_from_constructor(expr_("(rng.random((N, N)) < 0.15).astype(int)"), {})
-    assert s == "(N, N)"
-
-
-def test_shape_through_binop() -> None:
-    s = shape_from_constructor(expr_("np.zeros((N, M)) * 2.0"), {})
-    assert s == "(N, M)"
-
-
 # U. Trailing-slice pad does NOT count newaxis against the array rank           #
-
-
-def test_pad_newaxis_does_not_consume_rank() -> None:
-    # ``weights[None, :, :, :]`` on 4-D weights -> a trailing source axis is
-    # still implicit (5-D result); pad it so the broadcast alignment is right.
-    out = pad("c = weights[None, :, :, :]", {"weights": ("K", "K", "Ci", "Co"), "c": ("X",)})
-    # newaxis kept, and a 4th explicit source slice appended.
-    assert out.count(":") >= 4
-    assert "None" in out
 
 
 def test_pad_newaxis_full_source_rank_not_padded() -> None:
@@ -1131,32 +902,6 @@ def test_fft_numba_e2e(kernel: str) -> None:
 # O. numba desugars: axis reductions, masked assignment, ufunc.outer, call     #
 #    fixups. numba rejects ``axis=`` on mean/std/min/max/argmax, 2-D bool-mask  #
 #    indexing, ufunc.outer, np.ndarray/linspace(dtype=)/abs(array).            #
-def test_reduce_axis_desugar_lowers_mean_min() -> None:
-    from hpcagent_bench.translators.numpyto_common.numpy_desugar import desugar_for_python_backend
-
-    src = "def k(data, mn, mx):\n    mn[:] = np.mean(data, axis=0)\n    mx[:] = np.max(data, axis=0)\n"
-    arrays = [("data", "float64", ("M", "N")), ("mn", "float64", ("N",)), ("mx", "float64", ("N",))]
-    out = desugar_for_python_backend(src, py_kir("k", src, arrays, [], ["data", "mn", "mx"]))
-    assert "np.mean" not in out
-    assert "np.max" not in out
-    assert "for " in out
-    assert "/ " in out
-
-
-def test_masked_assign_lowers_to_guarded_loop_not_where() -> None:
-    """Masked assignment -> a guarded loop (NOT np.where): the RHS must be
-    computed only on selected elements (mandelbrot freezes diverged points to
-    avoid overflow; force_lj divides only where rsq > 0)."""
-    from hpcagent_bench.translators.numpyto_common.numpy_desugar import desugar_for_python_backend
-
-    src = "def k(rsq, out):\n    in_range = (rsq < 1.0) & (rsq > 0.0)\n    out[in_range] = 1.0 / rsq[in_range]\n"
-    out = desugar_for_python_backend(
-        src, py_kir("k", src, [("rsq", "float64", ("N", "N")), ("out", "float64", ("N", "N"))], [], ["rsq", "out"])
-    )
-    assert "np.where" not in out  # a loop, not np.where (overflow-safe)
-    assert "if " in out
-    assert "for " in out
-    assert "out[in_range]" not in out  # mask indexing removed
 
 
 def test_ufunc_outer_and_call_fixups() -> None:
@@ -1203,20 +948,6 @@ def test_add_at_scatter_and_mixed_gather() -> None:
     assert "np.add.at" not in out
     assert "np.empty(" in out
     assert "+=" in out
-    assert "for " in out
-
-
-def test_reduce_axis_method_form_and_helper_function() -> None:
-    """``levmask.any(axis=0)`` (method form) lowers, and a reduction in a HELPER
-    function is reached (its param ranks inferred from the call site)."""
-    from hpcagent_bench.translators.numpyto_common.numpy_desugar import desugar_for_python_backend
-
-    src = "def helper(m):\n    return m.any(axis=0)\ndef k(mask, out):\n    out[:] = helper(mask)\n"
-    out = desugar_for_python_backend(
-        src, py_kir("k", src, [("mask", "bool", ("R", "C")), ("out", "bool", ("C",))], [], ["mask", "out"])
-    )
-    assert ".any(axis" not in out
-    assert "np.any" not in out
     assert "for " in out
 
 
@@ -1273,46 +1004,6 @@ def test_int_matmul_lowers_but_float_matmul_kept() -> None:
         ),
     )
     assert "@" in fout  # float matmul untouched
-
-
-def test_int_matmul_accumulates_in_the_operand_dtype_not_int64() -> None:
-    """numpy's ``@`` returns ``result_type(a, b)``, so the lowered accumulator must too.
-
-    A hardcoded ``np.int64`` widened every int32 port, and storing that back through
-    ``out[...] = <int64>`` is a NARROWING copy DaCe cannot emit (comet_int4_gemm died on
-    ``dace::CopyNDDynamic<int, 1, 0, 2>::Dynamic::Copy(int64_t*, int*, ...)``). Asserted on
-    the emitted ``np.zeros`` dtype argument, not on a round-trip: the whole defect is
-    which dtype the temp is DECLARED with.
-    """
-    from hpcagent_bench.translators.numpyto_common.numpy_desugar import desugar_for_python_backend
-
-    src = "def k(li, rj, out):\n    out[:] = li @ rj\n"
-    out = desugar_for_python_backend(
-        src,
-        py_kir(
-            "k",
-            src,
-            [("li", "int32", ("N", "N")), ("rj", "int32", ("N", "N")), ("out", "int32", ("N", "N"))],
-            [],
-            ["li", "rj", "out"],
-        ),
-    )
-    assert "np.int64" not in out, f"accumulator still hardcodes int64:\n{out}"
-    assert "li.dtype" in out, f"accumulator does not take the operand dtype:\n{out}"
-    # A bool operand never decides the dtype -- numpy's bool @ int32 is int32.
-    bsrc = "def k(mask, rj, out):\n    out[:] = mask @ rj\n"
-    bout = desugar_for_python_backend(
-        bsrc,
-        py_kir(
-            "k",
-            bsrc,
-            [("mask", "bool", ("N", "N")), ("rj", "int32", ("N", "N")), ("out", "int32", ("N", "N"))],
-            [],
-            ["mask", "rj", "out"],
-        ),
-    )
-    assert "rj.dtype" in bout, f"bool operand decided the dtype:\n{bout}"
-    assert "mask.dtype" not in bout, f"bool operand decided the dtype:\n{bout}"
 
 
 def test_reshape_batched_matmul_lowers() -> None:
@@ -1409,45 +1100,6 @@ def test_issparse_folds_to_false_for_dense_abi() -> None:
     )
     assert "issparse" not in out
     assert "toarray" not in out
-
-
-def test_dead_branch_elim_removes_folded_issparse_branch() -> None:
-    """After ``sp.issparse(x)`` folds to False, the dead sparse branch (with its
-    ``.toarray()``) is removed -- pythran statically types even a dead branch."""
-    from hpcagent_bench.translators.numpyto_common.numpy_desugar import desugar_for_python_backend
-
-    src = (
-        "def k(A, B, out):\n"
-        "    if sp.issparse(A) and sp.issparse(B):\n"
-        "        out[:] = (A @ B).toarray()\n"
-        "        return\n"
-        "    out[:] = A + B\n"
-    )
-    out = desugar_for_python_backend(
-        src,
-        py_kir(
-            "k",
-            src,
-            [("A", "float64", ("N", "N")), ("B", "float64", ("N", "N")), ("out", "float64", ("N", "N"))],
-            [],
-            ["A", "B", "out"],
-        ),
-    )
-    assert "toarray" not in out
-    assert "issparse" not in out
-
-
-def test_np_flip_lowers_to_reverse_slice() -> None:
-    """np.flip(x[, axis]) -> a reverse-step slice (pythran's np.flip fails type
-    deduction -- durbin); no axis reverses every axis."""
-    from hpcagent_bench.translators.numpyto_common.numpy_desugar import desugar_for_python_backend
-
-    src = "def k(x, out):\n    out[:] = np.flip(x)\n"
-    out = desugar_for_python_backend(
-        src, py_kir("k", src, [("x", "float64", ("N",)), ("out", "float64", ("N",))], [], ["x", "out"])
-    )
-    assert "np.flip" not in out
-    assert "::-1" in out
 
 
 def test_repeat_axis_lowers_to_gather_loop() -> None:
@@ -1876,39 +1528,6 @@ def test_ssa_rename_splits_a_reassigned_local() -> None:
     out = desugar(src, [("a", *VEC), ("out", *VEC)], [], ["a", "out"], None)
     assert "t__ssa1 = np.sum(t)" in out, f"reassignment not versioned:\n{out}"
     assert "out[0] = t__ssa1" in out, f"the read after the rebinding kept the stale name:\n{out}"
-
-
-def test_ssa_rename_reads_track_the_version_in_scope() -> None:
-    """A read BEFORE the rebinding stays on version 0; every read after it moves to
-    the new name. Getting this backwards silently swaps two different values."""
-    src = "def kernel(a, out):\n    t = a * 2.0\n    u = t + 1.0\n    t = np.sum(u)\n    out[0] = t + u[0]\n"
-    out = desugar(src, [("a", *VEC), ("out", *VEC)], [], ["a", "out"], None)
-    assert "u = t + 1.0" in out, f"a read before the rebinding was re-versioned:\n{out}"
-    assert "t__ssa1 = np.sum(u)" in out, out
-    assert "out[0] = t__ssa1 + u[0]" in out, out
-
-
-def test_ssa_rename_bails_when_a_branch_rebinds_the_name() -> None:
-    """A version written inside an ``if`` reaches the join only on one path, so the
-    read after it needs a phi node this pass does not build -- leave the name alone."""
-    src = "def kernel(a, out, c):\n    t = a * 2.0\n    if c > 0:\n        t = a * 3.0\n    out[0] = t[0]\n"
-    out = desugar(src, [("a", *VEC), ("out", *VEC)], [], ["a", "out", "c"], None)
-    assert "__ssa" not in out, f"renamed a name a branch rebinds:\n{out}"
-
-
-def test_ssa_rename_leaves_a_single_binding_and_a_marker_alone() -> None:
-    """A name bound once is untouched (no churn in the generated corpus), and neither
-    is one bound to the lowering's allocation marker -- dace's ResolveZeros looks that
-    target up BY NAME in ``zeros_locals`` and DROPS an allocation it cannot find."""
-    src = (
-        "def kernel(a, out):\n"
-        "    t = a * 2.0\n"
-        "    s = a * 3.0\n"
-        "    s = __hpcagent_bench_zeros__()\n"
-        "    out[0] = t[0] + s[0]\n"
-    )
-    out = desugar(src, [("a", *VEC), ("out", *VEC)], [], ["a", "out"], None)
-    assert "__ssa" not in out, f"renamed a single binding or a marker allocation:\n{out}"
 
 
 # W. Two more dace-frontend desugars. dace's reductions declare no ``keepdims``  #

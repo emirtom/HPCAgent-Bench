@@ -109,7 +109,7 @@ def sweep(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
         "--no-ignore-errors",
     )
     # The legs wrote shard 0; the base DB the assertions open is rebuilt from the shards.
-    recording.ensure_aggregated(str(cwd / "hpcagent_bench.db"))
+    recording.aggregate(str(cwd / "hpcagent_bench.db"))
     return cwd
 
 

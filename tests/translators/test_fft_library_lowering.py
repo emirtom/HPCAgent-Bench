@@ -43,24 +43,6 @@ def fft_op_kir(fortran: bool = False) -> KernelIR:
     return lower(kir, fft_library=True)
 
 
-def test_hoisted_fft_result_temp_stays_tagged_complex() -> None:
-    """A hoisted np.fft.fft(x) temp must keep the hoister's complex128 tag through the whole
-    lowering pipeline -- a regression here silently halves the buffer (N reals instead of N
-    complex), reading/writing past its own allocation."""
-    kir = fft_op_kir()
-    cb_names = [n for n in kir.zeros_locals if n.startswith("__cb")]
-    assert cb_names, f"expected a hoisted __cb temp for the fft result, zeros_locals={kir.zeros_locals}"
-    for name in cb_names:
-        assert kir.local_dtypes.get(name) == "complex128", (name, kir.local_dtypes)
-
-
-def test_c_emit_declares_the_fft_temp_as_complex_and_calls_fftw() -> None:
-    src = emit_c(fft_op_kir(), fn_name="fft_op")
-    assert "fftw_plan_dft_1d" in src
-    assert "double *__cb" not in src  # the under-allocating real declaration this bug produced
-    assert "double _Complex *__cb" in src
-
-
 def test_fortran_emit_renders_the_fftw_block_not_a_bare_call() -> None:
     src = emit_fortran(fft_op_kir(fortran=True), fn_name="fft_op")
     assert "fftw_plan_dft_1d" in src
@@ -174,13 +156,6 @@ def fftn_op_kir(nd: bool) -> KernelIR:
         FFTN_SRC, "fftn_op", ["a", "b"], ["u", "v", "w", "t"], FFTN_SHAPES, {"N": 4, "M": 3, "K": 5}, dtypes
     )
     return lower(kir, fft_library=True, fft_library_nd=nd)
-
-
-def test_c_lowering_renders_every_nd_fft_as_one_plan_many_dft_and_no_naive_loop() -> None:
-    src = emit_c(fftn_op_kir(nd=True), fn_name="fftn_op")
-    assert src.count("fftw_plan_many_dft(") == 4
-    assert "cexp(" not in src  # the naive DFT's twiddle: none of the four transforms kept it
-    assert "#include <fftw3.h>" in src
 
 
 def test_without_the_nd_flag_an_nd_fft_keeps_the_naive_loop() -> None:

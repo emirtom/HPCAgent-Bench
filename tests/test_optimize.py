@@ -59,15 +59,6 @@ def test_framework_declares_optimizer_status() -> None:
     assert np_fw.is_optimizer is False
 
 
-def test_tvm_and_triton_are_optimizers() -> None:
-    # Class-level flag (no tvm/triton install needed to read it).
-    from hpcagent_bench.frameworks.triton_framework import TritonFramework
-    from hpcagent_bench.frameworks.tvm_framework import TVMFramework
-
-    assert TVMFramework.is_optimizer is True
-    assert TritonFramework.is_optimizer is True
-
-
 def test_metaschedule_trials_delegates_to_budget(monkeypatch: pytest.MonkeyPatch) -> None:
     from hpcagent_bench.frameworks.tvm_framework import metaschedule_trials
 

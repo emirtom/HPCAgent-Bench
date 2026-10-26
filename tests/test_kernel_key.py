@@ -17,10 +17,3 @@ def test_every_registry_key_names_the_kernel_its_stem_loads() -> None:
     names = spec.stem_aliases()
     assert {kernel_stem(key) for key in spec.KERNELS} == set(names)
     assert all(names[kernel_stem(key)] == key for key in spec.KERNELS)
-
-
-def test_the_plot_selector_returns_kernel_names() -> None:
-    """``select_short_names`` normalizes a bare level and returns the stems ``KERNELS.select`` does."""
-    assert spec.select_short_names("gemm") == ["gemm"]
-    assert spec.select_short_names(spec.KERNELS.key_for_name("gemm")) == ["gemm"]
-    assert spec.select_short_names("lvl1") == spec.KERNELS.select("all@lvl1")

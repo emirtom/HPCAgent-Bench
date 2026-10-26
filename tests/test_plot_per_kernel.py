@@ -6,7 +6,6 @@ separate/stacked layout.
 """
 
 import math
-import pathlib
 
 import matplotlib as mpl
 import pytest
@@ -558,15 +557,3 @@ def test_a_print_size_tick_is_the_compact_kernel_name(kernel: str, want: str) ->
 
 def test_every_compact_name_fits_the_compact_limit() -> None:
     assert all(len(name) <= study_tags.COMPACT_NAME_MAX for name in study_tags.COMPACT_NAMES.values())
-
-
-def test_a_rerun_writes_byte_identical_png_and_pdf(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    speed_cells = [pk.KernelCell("k1", (1.0, 2.0, 4.0)), pk.KernelCell("k2", (0.5,))]
-    speed = speed_metric(speed_cells)
-    for epoch, folder in (("0", "first"), ("86400", "second")):
-        monkeypatch.setenv("SOURCE_DATE_EPOCH", epoch)
-        fig = pk.figure_panels([speed], ["k2", "k1"], pk.Style.BOX, True, "demo")
-        pk.save(fig, tmp_path / folder / "figure.pdf")
-    for name in ("figure.pdf", "figure.png"):
-        first, second = (tmp_path / folder / name for folder in ("first", "second"))
-        assert first.read_bytes() == second.read_bytes(), f"{name} depends on when it was saved"

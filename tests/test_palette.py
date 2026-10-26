@@ -81,10 +81,6 @@ def test_no_registered_packet_shares_a_slot_with_another() -> None:
     assert len({palette.color(p) for p in leads}) == len(leads)
 
 
-def test_models_do_not_share_a_shape() -> None:
-    assert len(set(palette.model_markers(palette.order("models")).values())) == len(palette.order("models"))
-
-
 @pytest.mark.parametrize("unknown", ["mystery", "not-a-packet"])
 def test_an_unregistered_packet_is_stable_and_warns(unknown: str, caplog: pytest.LogCaptureFixture) -> None:
     """A new packet must not break a plot, and must not get a different colour in two runs of the

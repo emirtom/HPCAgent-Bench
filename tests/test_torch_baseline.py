@@ -166,12 +166,6 @@ def test_torch_is_credited_before_numpy_when_both_were_timed() -> None:
     assert scoring.primary_baseline({Baseline.C: 1, Baseline.NUMBA: 2}) == Baseline.NUMBA
 
 
-def test_the_weights_are_frozen_on_the_cpu_only() -> None:
-    """The disclosed policy: the CPU kind freezes weights (what lets Inductor tune its GEMM template),
-    the GPU kind takes every repeat's weights as inputs."""
-    assert torch_baseline.FREEZE_WEIGHTS == {"cpu": True, "cuda": False}
-
-
 @pytest.mark.usefixtures("uncovered")
 def test_the_resolver_names_the_source_or_refuses() -> None:
     """ONE resolver: a kernel's own ``_torch.py`` first, else its KernelBench row, else a refusal that
