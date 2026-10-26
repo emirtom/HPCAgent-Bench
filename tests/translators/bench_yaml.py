@@ -41,7 +41,7 @@ CORPUS_SHARD = os.environ.get("HPCAGENT_BENCH_TRANSLATOR_CORPUS_SHARD", "").stri
 CORPUS_SUBSET = os.environ.get("HPCAGENT_BENCH_E2E_SUBSET", "") == "1"
 
 #: Kernels whose translator emit coverage, together, equals the whole corpus's (helpers/scripts/select_e2e_kernels.py).
-COVERAGE_SET_FILE = pathlib.Path(__file__).parent.parent / "e2e_coverage_set.txt"
+COVERAGE_SET_FILE = paths.ROOT / "tests" / "e2e_coverage_set.txt"
 
 
 def coverage_set() -> frozenset[str]:
