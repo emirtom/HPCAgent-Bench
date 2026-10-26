@@ -189,6 +189,11 @@ def pluto_ceildiv(lhs: str, rhs: str) -> str:
 PLUTO_MACRO_SPELLING = {"__npb_fmax": "max", "__npb_fmin": "min"}
 
 
+def shared_allocations(left: dict[str, str], right: dict[str, str]) -> dict[str, str]:
+    """The deferred buffers allocated, at the same size, on both of two control-flow paths."""
+    return {name: size for name, size in left.items() if right.get(name) == size}
+
+
 def pluto_call_free(name: str, args: str, hoisted: dict[str, str] | None = None) -> str:
     """``name(args)`` with the CALL removed, for a pluto scop (POLYCC-010's guard).
 
@@ -611,6 +616,12 @@ class CBodyEmitter(BaseEmitter):
             if node.value.func.id == FFTN_LIBRARY_MARKER:
                 return self.emit_fftn_library(node.value, indent)
             return self.emit_fft_library(node.value, indent)
+        if isinstance(node, (ast.For, ast.While)):
+            # A loop body may run zero times: after it, only the allocations made before it hold.
+            before = dict(self._deferred_alloc_size)
+            out = super().emit_stmt(node, indent)
+            self._deferred_alloc_size = shared_allocations(before, self._deferred_alloc_size)
+            return out
         return super().emit_stmt(node, indent)
 
     def emit_for(self, node: ast.For, indent: str) -> str:
@@ -754,7 +765,10 @@ class CBodyEmitter(BaseEmitter):
 
     def emit_if(self, node: ast.If, indent: str) -> str:
         hoisted = self.declare_inline_locals_before(node, indent)
+        # Each branch starts from the allocations made before the ``if``; after it, only those both paths made hold.
+        before = dict(self._deferred_alloc_size)
         then = self.branch_block(node.body, indent + "  ")
+        after_then, self._deferred_alloc_size = self._deferred_alloc_size, dict(before)
         chained = bool(node.orelse) and len(node.orelse) == 1 and isinstance(node.orelse[0], ast.If)
         else_str = ""
         if node.orelse:
@@ -764,6 +778,7 @@ class CBodyEmitter(BaseEmitter):
                 if chained and isinstance(only_else, ast.If)
                 else self.branch_block(node.orelse, indent + "  ")
             )
+        self._deferred_alloc_size = shared_allocations(after_then, self._deferred_alloc_size)
         # A guard whose branches are both empty (a dropped validation raise) has no effect; drop the whole if.
         if not then.strip() and not else_str.strip():
             return ""
