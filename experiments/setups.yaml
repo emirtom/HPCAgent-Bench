@@ -171,6 +171,11 @@ harness:
 # scicomp40 (multi-submission; a grade is a whole application).
 scicomp:
   extends: llrbase-c
+  models:
+    qwen38:
+      # r=0.25 at 0.306: the 4.03M-token KV pool of experiment:qwen38. At r=0.5 (3.32M) 40 scicomp agents filled
+      # 95% of it and queued requests until their streams died (docs/serving/qwen38.md).
+      SGLANG_EXTRA_ARGS: '"--chat-template ${HPCAGENT_BENCH_REPO}/containers/inference/chat-template-qwen38.jinja --trust-remote-code --attention-backend aiter --language-only --watchdog-timeout 1800 --context-length 262144 --mem-fraction-static 0.306 --mamba-full-memory-ratio 0.25 --max-running-requests 128 --enable-metrics --reasoning-parser qwen3 --tool-call-parser qwen3_coder --enable-cache-report"'
 
 # solver14 (tags/solvers.txt, all 14): the iterative-solver tag, ONE graded submission per kernel (the
 # mlscale and llrblind keys): /score steers, and the one /submit is the answer.

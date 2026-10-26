@@ -17,6 +17,8 @@ import sys
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, cast
 
+import pydantic
+
 from hpcagent_agent.harness import runner_common, subagents
 
 __all__ = [
@@ -24,6 +26,7 @@ __all__ = [
     "MAX_TURNS",
     "TRANSCRIPT",
     "agents_usage",
+    "json_item",
     "main",
     "run_agent",
     "run_episode",
@@ -47,6 +50,11 @@ def agents_usage(usage: Any) -> dict[str, int]:  # noqa: ANN401
     )
 
 
+def json_item(item: Any) -> Any:  # noqa: ANN401
+    """One input item as JSON data: the SDK's items are dicts, a model object is dumped."""
+    return item.model_dump(mode="json", exclude_none=True) if isinstance(item, pydantic.BaseModel) else item
+
+
 def write_line(path: pathlib.Path, record: Mapping[str, Any]) -> None:
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, default=str) + "\n")
@@ -60,9 +68,11 @@ async def run_agent(
     instructions: str | None = None,
     max_turns: int = MAX_TURNS,
     on_tool_result: Callable[[str, Any], None] | None = None,
+    checkpoint: bool = True,
 ) -> None:
     """Run one agent on the task to its end (MCP servers started and stopped around it); ``on_tool_result`` sees
-    every tool's answer by name."""
+    every tool's answer by name. With ``checkpoint`` each call's input is saved and ``args.resume_prompt`` resumes
+    from the saved one."""
     from agents import Agent, FunctionTool, ModelSettings, RunConfig, RunContextWrapper, RunHooks, Runner
     from agents.mcp import MCPServerStdio
     from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
@@ -106,8 +116,12 @@ async def run_agent(
             if on_tool_result is not None:
                 on_tool_result(tool.name, result)
 
-    def windowed_by(by: runner_common.HistoryWindow | None) -> Callable[[CallModelData[Any]], ModelInputData]:
+    def windowed_by(
+        by: runner_common.HistoryWindow | None, *, checkpoint: bool = False
+    ) -> Callable[[CallModelData[Any]], ModelInputData]:
         def windowed(data: CallModelData[Any]) -> ModelInputData:
+            if checkpoint:
+                runner_common.save_checkpoint(args.workdir, [json_item(item) for item in data.model_data.input])
             if by is None:
                 return data.model_data
             return ModelInputData(input=by.view(data.model_data.input), instructions=data.model_data.instructions)
@@ -195,12 +209,17 @@ async def run_agent(
             )
         offered = [tool.name for tool in await agent.get_all_tools(RunContextWrapper(context=None))]
         print(f"harness: tools ready: {', '.join(sorted(offered))}", flush=True)
+        opening: str | list[Any] = args.prompt.read_text(encoding="utf-8")
+        if checkpoint and args.resume_prompt:
+            opening = [*runner_common.load_checkpoint(args.workdir), {"role": "user", "content": args.resume_prompt}]
         await Runner.run(
             agent,
-            args.prompt.read_text(encoding="utf-8"),
+            opening,
             max_turns=max_turns,
             hooks=Recorder(transcript, window),
-            run_config=RunConfig(tracing_disabled=True, call_model_input_filter=windowed_by(window)),
+            run_config=RunConfig(
+                tracing_disabled=True, call_model_input_filter=windowed_by(window, checkpoint=checkpoint)
+            ),
         )
 
 

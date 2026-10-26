@@ -178,7 +178,8 @@ def usage_total(usage: dict[str, object]) -> int | None:
 
 
 #: Substrings every event a token fold reads must contain: an ``assistant`` turn, the ``result``
-#: record, a ``thinking_tokens`` delta, a proactive ``compact_boundary``. A line with none of them --
+#: record, a ``thinking_tokens`` delta, a request's ``message_start`` and ``message_delta``, a proactive
+#: ``compact_boundary``, the driver's resume line. A line with none of them --
 #: a tool result or a user turn, most of a transcript's bytes -- is skipped without being decoded; a
 #: line that only mentions one is decoded and then rejected by its type, so the filter saves work and
 #: changes no total.
@@ -186,9 +187,23 @@ USAGE_EVENT_MARKERS: tuple[str, ...] = (
     '"assistant"',
     '"result"',
     "thinking_tokens",
+    "message_start",
     "message_delta",
     "compact_boundary",
+    "driver_resume",
 )
+
+#: The driver's own line in a claude transcript where it resumed the SAME session after a crash
+#: (``agent_driver.resume_marker``): the next leg continues this transcript's context and its counts. The
+#: request the crash cut off (a ``message_start`` with no ``message_delta``) is dropped from every fold at this
+#: line: the resumed CLI sends it again, so counting the lost one too would charge it twice.
+RESUME_SUBTYPE = "driver_resume"
+
+
+def is_resume(event: dict[str, object]) -> bool:
+    """Whether ``event`` is the driver's :data:`RESUME_SUBTYPE` line."""
+    return event.get("type") == "system" and event.get("subtype") == RESUME_SUBTYPE
+
 
 #: claude-code's own system event marking a PROACTIVE compaction (2.1.197, claude_context_env in
 #: agent_driver.py): the CLI replaced the transcript with a request for a summary. Measured: that
@@ -365,9 +380,40 @@ def fold_compaction_recovery(event: dict[str, object], total_by_message: dict[st
     total_by_message[COMPACTION_MESSAGE_ID] = max(0, model_input + model_output - folded)
 
 
+#: The key a fold files the message its following ``message_delta`` readings belong to under, as
+#: ``OPEN_MESSAGE_KEY + id``; excluded from every total.
+OPEN_MESSAGE_KEY = "open-message:"
+
+
+def track_open_message(event: dict[str, object], by_message: dict[str, int]) -> bool:
+    """Keep a billed fold's one :data:`OPEN_MESSAGE_KEY` entry on the request still streaming; at a
+    :data:`RESUME_SUBTYPE` line drop that unfinished request's own entry with it. True when ``event`` was one of
+    the three it reads (``message_start``, ``message_delta``, the resume line)."""
+    opened = stream_message_id(event)
+    if opened is not None:
+        for key in [key for key in by_message if key.startswith(OPEN_MESSAGE_KEY)]:
+            del by_message[key]
+        by_message[OPEN_MESSAGE_KEY + opened] = 0
+        return True
+    if delta_usage(event) is not None:
+        for key in [key for key in by_message if key.startswith(OPEN_MESSAGE_KEY)]:
+            del by_message[key]
+        return True
+    if is_resume(event):
+        for key in [key for key in by_message if key.startswith(OPEN_MESSAGE_KEY)]:
+            del by_message[key]
+            by_message.pop(key[len(OPEN_MESSAGE_KEY) :], None)
+        return True
+    return False
+
+
 def billed_total(total_by_message: dict[str, int]) -> int:
-    """The billed sum of a ``{message id: tokens}`` fold, excluding the bookkeeping sentinel."""
-    return sum(value for key, value in total_by_message.items() if key != COMPACTION_SEEN_KEY)
+    """The billed sum of a ``{message id: tokens}`` fold, excluding the bookkeeping sentinels."""
+    return sum(
+        value
+        for key, value in total_by_message.items()
+        if key != COMPACTION_SEEN_KEY and not key.startswith(OPEN_MESSAGE_KEY)
+    )
 
 
 def accumulate_total_tokens(lines: list[str], total_by_message: dict[str, int]) -> int:
@@ -375,20 +421,18 @@ def accumulate_total_tokens(lines: list[str], total_by_message: dict[str, int]) 
 
     A compaction's own tokens are recovered too (:func:`fold_compaction_recovery`) once its
     ``compact_boundary`` marker and the transcript's closing ``result.modelUsage`` have both been
-    seen, in this call or an earlier one.
+    seen, in this call or an earlier one. A request a crash cut off is dropped at the driver's resume line
+    (:func:`track_open_message`).
     """
     for line in lines:
         event = usage_event(line)
         if event is None:
             continue
+        if track_open_message(event, total_by_message):
+            continue
         fold_compaction_recovery(event, total_by_message)
         fold_billed_event(event, total_by_message)
     return billed_total(total_by_message)
-
-
-#: The key an output fold files the message its following ``message_delta`` readings belong to under, as
-#: ``OPEN_MESSAGE_KEY + id``; excluded from every total.
-OPEN_MESSAGE_KEY = "open-message:"
 
 
 def accumulate_output_tokens(lines: list[str], output_by_message: dict[str, int]) -> int:
@@ -408,6 +452,13 @@ def accumulate_output_tokens(lines: list[str], output_by_message: dict[str, int]
                 del output_by_message[key]
             output_by_message[OPEN_MESSAGE_KEY + opened] = 0
             continue
+        if is_resume(event):
+            # The open request's key stays after its deltas (later ones are named through it); a value of 1
+            # marks one that got a reading, so only a request the crash cut off is dropped.
+            for key in [key for key in output_by_message if key.startswith(OPEN_MESSAGE_KEY)]:
+                if not output_by_message.pop(key):
+                    output_by_message.pop(key[len(OPEN_MESSAGE_KEY) :], None)
+            continue
         reading = delta_usage(event)
         if reading is not None:
             named = event.get("api_message_id")
@@ -415,6 +466,8 @@ def accumulate_output_tokens(lines: list[str], output_by_message: dict[str, int]
             message_id = named if isinstance(named, str) and named else (open_ids[0] if open_ids else "")
             if message_id:
                 output_by_message[message_id] = max(reading[1], output_by_message.get(message_id, 0))
+                if OPEN_MESSAGE_KEY + message_id in output_by_message:
+                    output_by_message[OPEN_MESSAGE_KEY + message_id] = 1
             continue
         if event.get("type") == "assistant":
             message = as_block(event.get("message"))
@@ -568,6 +621,13 @@ def events_cost(events: list[dict[str, object]]) -> CostRow:
         started = stream_message_id(event)
         if started is not None:
             current = started
+            continue
+        if is_resume(event):
+            # The request the crash cut off, never closed by a delta: the resumed leg re-sends its prompt.
+            if current and current not in deltas and current in per_turn:
+                del per_turn[current]
+                order.remove(current)
+            current = ""
             continue
         delta = delta_usage(event)
         if delta is not None:
@@ -764,6 +824,8 @@ def attempt_totals(log: pathlib.Path) -> AttemptTotals:
         events = claude_events(log)
         billed_by_message: dict[str, int] = {}
         for event in events:
+            if track_open_message(event, billed_by_message):
+                continue
             fold_compaction_recovery(event, billed_by_message)
             fold_billed_event(event, billed_by_message)
         cost = events_cost(events)
@@ -816,10 +878,10 @@ def final_attempt_start(worker_dir: pathlib.Path, logs: list[pathlib.Path]) -> i
 def episode_totals(worker_dir: pathlib.Path) -> EpisodeTotals:
     """The TASK TOKEN TOTAL (T2) of one task: its FINAL attempt, and what the earlier ones spent.
 
-    One rule for every directory, old and new: the last agent ran the task from nothing to its end.
-    A relaunch hands the next attempt an empty model context, and this driver hands it an empty
-    workspace too (T5), so an earlier attempt contributed no part of the answer that was graded --
-    it is spend, reported as ``_crashed`` beside the total and never added to it.
+    A resumed crash stays in one transcript (T5), so its legs are one attempt here, counted once. Only a fresh
+    relaunch leaves ``.attemptN`` transcripts: it hands the next attempt an empty context and workspace, so an
+    earlier attempt contributed no part of the answer that was graded -- it is spend, reported as ``_crashed``
+    beside the total and never added to it.
 
     A worker directory with no transcript at all was never entered -- not a zero-token task -- so it
     reports ``attempts=0`` and ``None`` totals rather than 0.

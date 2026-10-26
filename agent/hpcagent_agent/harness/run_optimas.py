@@ -113,6 +113,9 @@ def run_episode(
 
     transcript = args.workdir / TRANSCRIPT
     failures: list[BaseException] = []
+    # Rounds are independent agents, so there is no history to resume: a crashed episode restarts the search in its
+    # own workspace, and its usage keeps counting.
+    runner_common.save_checkpoint(args.workdir, [])
 
     class AgentRound(BaseComponent):
         """One round of the agent on the task, under the instructions Optimas sets as its variable."""
@@ -146,6 +149,7 @@ def run_episode(
                         instructions=self.variable or None,
                         max_turns=ROUND_TURNS,
                         on_tool_result=on_tool_result,
+                        checkpoint=False,
                     )
                 )
             except MaxTurnsExceeded:

@@ -86,9 +86,6 @@ SUCCESS = (Attempt("success.jsonl", 0),)
 #: Attempt sequences run through run_agent: the n-th launch replays attempts[n], the last repeating.
 CLOSINGS: dict[str, tuple[Attempt, ...]] = {
     "success": SUCCESS,
-    "crash_relaunch": (Attempt("crash.jsonl", 1), Attempt("success.jsonl", 0)),
-    "crash_exhausted": (Attempt("crash.jsonl", 1),),
-    "api_timeout": (Attempt("api_timeout.jsonl", 0),),
     "context_overflow": (Attempt("context_overflow.jsonl", 0),),
 }
 LOG_NAMES = ("success.jsonl", "crash.jsonl", "api_timeout.jsonl", "context_overflow.jsonl")

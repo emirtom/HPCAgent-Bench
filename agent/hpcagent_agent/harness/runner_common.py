@@ -19,6 +19,7 @@ from hpcagent_agent.coded import Coded
 __all__ = [
     "API_TIMEOUT_TYPES",
     "BASH",
+    "CHECKPOINT",
     "CONTEXT_OVERFLOW_MARKS",
     "CONTEXT_OVERFLOW_TYPES",
     "CUT_FRACTION",
@@ -62,6 +63,7 @@ __all__ = [
     "history_steps",
     "is_reply",
     "judge_call_timeout",
+    "load_checkpoint",
     "litellm_model",
     "mcp_servers",
     "message_chars",
@@ -69,6 +71,7 @@ __all__ = [
     "parse_args",
     "run_and_record",
     "run_shell",
+    "save_checkpoint",
     "shell_observation",
     "token_count",
     "usage_line",
@@ -77,6 +80,9 @@ __all__ = [
 
 END_RECORD = "harness-end.json"
 DETAIL_LIMIT = 2000
+#: What a runner resumes a crashed episode from (``--resume-prompt``): the history its last model call was sent,
+#: rewritten before every call. The driver resumes a crashed runner only when this file exists.
+CHECKPOINT = "harness-checkpoint.json"
 
 
 class EndReason(Coded):
@@ -130,6 +136,8 @@ class RunnerArgs:
     request_timeout: int | None = None
     #: Where the agent's commands run (its shared-mount folder); None = workdir.
     cwd: pathlib.Path | None = None
+    #: Non-empty: continue the crashed episode from its :data:`CHECKPOINT` with this message instead of the task.
+    resume_prompt: str = ""
 
     @property
     def command_dir(self) -> pathlib.Path:
@@ -151,6 +159,7 @@ def parse_args(argv: Sequence[str], *, with_mcp_config: bool, with_context_lengt
         parser.add_argument("--context-length", type=int, default=0, help="The served context window.")
     parser.add_argument("--compaction-trigger", type=int, default=0, help="Prompt tokens that start compaction.")
     parser.add_argument("--request-timeout", type=int, default=0, help="Seconds one model request may take.")
+    parser.add_argument("--resume-prompt", default="", help="Resume the crashed episode with this message.")
     if with_mcp_config:
         parser.add_argument("--mcp-config", required=True, type=pathlib.Path)
     namespace = parser.parse_args(list(argv))
@@ -169,7 +178,20 @@ def parse_args(argv: Sequence[str], *, with_mcp_config: bool, with_context_lengt
         context_length=served if served > 0 else None,
         compaction_trigger=int(namespace.compaction_trigger) if namespace.compaction_trigger > 0 else None,
         request_timeout=int(namespace.request_timeout) if namespace.request_timeout > 0 else None,
+        resume_prompt=str(namespace.resume_prompt),
     )
+
+
+def save_checkpoint(workdir: pathlib.Path, history: Sequence[Any]) -> None:
+    """Replace :data:`CHECKPOINT` with ``history`` (JSON-ready), atomically: a crash mid-write keeps the last one."""
+    partial = workdir / f"{CHECKPOINT}.partial"
+    partial.write_text(json.dumps({"history": list(history)}, default=str), encoding="utf-8")
+    partial.replace(workdir / CHECKPOINT)
+
+
+def load_checkpoint(workdir: pathlib.Path) -> list[Any]:
+    """The history :func:`save_checkpoint` last wrote."""
+    return list(json.loads((workdir / CHECKPOINT).read_text(encoding="utf-8"))["history"])
 
 
 def litellm_model(served_name: str) -> str:

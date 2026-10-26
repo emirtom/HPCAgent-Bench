@@ -647,6 +647,88 @@ def test_modelusage_noise_without_a_compaction_is_never_mistaken_for_one(
     assert token_cost.COMPACTION_MESSAGE_ID not in total_by_message
 
 
+def resume_line(token_cost: ModuleType) -> str:
+    """The driver's line where it resumed the crashed session (``agent_driver.resume_marker``)."""
+    return json.dumps({"type": "system", "subtype": token_cost.RESUME_SUBTYPE, "session_id": "s1"})
+
+
+def resumed_transcript(token_cost: ModuleType, *, resumed: bool) -> list[str]:
+    """Two completed turns, a third the crash cut off (a ``message_start`` and its first block, no delta), then
+    -- when ``resumed`` -- the driver's resume line and two turns of the resumed leg in the SAME transcript."""
+    first_leg = [
+        message_start("m1"),
+        assistant_line("m1", 1000, 0),
+        message_delta(100),
+        message_start("m2"),
+        assistant_line("m2", 1200, 0),
+        message_delta(50),
+        message_start("m3"),
+        assistant_line("m3", 1300, 30),
+        json.dumps({"type": "result", "is_error": True, "usage": {"output_tokens": 150}}),
+    ]
+    if not resumed:
+        return first_leg
+    return [
+        *first_leg,
+        resume_line(token_cost),
+        message_start("m4"),
+        assistant_line("m4", 1350, 0),
+        message_delta(80),
+        message_start("m5"),
+        assistant_line("m5", 1500, 0),
+        message_delta(40),
+        result_line(120),
+    ]
+
+
+def test_a_resumed_crash_counts_both_legs_once_and_drops_only_the_cut_off_request(
+    token_cost: ModuleType, tmp_path: pathlib.Path
+) -> None:
+    """A crash resumes its own session in the same transcript: the first leg's turns keep counting and the resumed
+    leg's add to them. The one request the crash cut off (m3) is dropped from every fold -- its prompt is the prefix
+    the resumed leg sends again, and its partial reply was discarded. Exact numbers, every fold."""
+    lines = resumed_transcript(token_cost, resumed=True)
+    billed = 1000 + 1200 + 1350 + 1500
+    assert token_cost.accumulate_total_tokens(lines, {}) == billed
+    assert token_cost.accumulate_output_tokens(lines, {}) == 100 + 50 + 80 + 40
+
+    cost = token_cost.episode_cost(tmp_path_log(tmp_path, lines))
+    assert cost["turns"] == 4
+    # Prompts 1000, 1200, 1350, 1500: each turn's growth is fresh, nothing shrank, nothing is counted twice.
+    assert (cost["fresh_input"], cost["cached_input"], cost["compactions"]) == (1500, 1000 + 1200 + 1350, 0)
+    assert cost["output"] == 270
+
+    (tmp_path / "claude.log").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    totals = token_cost.episode_totals(tmp_path)
+    assert (totals.attempts, totals.tokens_billed, totals.tokens_billed_crashed) == (1, billed, 0)
+    assert (totals.tokens_effective, totals.tokens_effective_crashed) == (1500 + 270, 0)
+
+
+def test_the_live_watcher_folds_a_resumed_transcript_to_the_same_totals_line_by_line(
+    token_cost: ModuleType,
+) -> None:
+    """The budget watchers fold one poll's new lines at a time, so the resume line arrives in a later call than the
+    request it cuts off; the running totals must equal the one-shot ones at every line."""
+    lines = resumed_transcript(token_cost, resumed=True)
+    billed: dict[str, int] = {}
+    output: dict[str, int] = {}
+    for count_so_far, line in enumerate(lines, start=1):
+        assert token_cost.accumulate_total_tokens([line], billed) == token_cost.accumulate_total_tokens(
+            lines[:count_so_far], {}
+        )
+        assert token_cost.accumulate_output_tokens([line], output) == token_cost.accumulate_output_tokens(
+            lines[:count_so_far], {}
+        )
+
+
+def test_without_a_resume_the_cut_off_request_still_counts(token_cost: ModuleType) -> None:
+    """Only the driver's resume line drops a request: an episode that simply ended (killed, out of clock) spent the
+    cut-off prompt and nothing re-sent it."""
+    lines = resumed_transcript(token_cost, resumed=False)
+    assert token_cost.accumulate_total_tokens(lines, {}) == 1000 + 1200 + 1300 + 30
+    assert token_cost.accumulate_output_tokens(lines, {}) == 100 + 50 + 30
+
+
 def tmp_path_log(tmp_path: pathlib.Path, lines: list[str]) -> pathlib.Path:
     """A throwaway ``claude.log`` under ``tmp_path`` holding ``lines``, for a test that needs both
     folds over the same transcript without redeclaring the write-and-join boilerplate."""

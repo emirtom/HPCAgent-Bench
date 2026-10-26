@@ -66,6 +66,7 @@ __all__ = [
     "CONTEXT_OVERFLOW_MARK",
     "COST_KEYS",
     "CPF_PAGES",
+    "CRASH_RESUME_PROMPT",
     "DEFAULT_CLAUDE_MAX_TURNS",
     "DRIVER_KILLS",
     "ENGINE_SERIES",
@@ -73,6 +74,7 @@ __all__ = [
     "FUSED_PROBLEM_KEYS",
     "GRADE_FIELD",
     "IDENTITY_KEYS",
+    "INIT_PREFIX",
     "JOB_CANCELLED",
     "JOB_END_MARGIN_S",
     "MATERIAL_DIR_ENV",
@@ -153,6 +155,7 @@ __all__ = [
     "claude_command",
     "claude_context_env",
     "claude_env",
+    "claude_session",
     "claude_supports_flag",
     "clear_for_relaunch",
     "closing_crashed",
@@ -227,6 +230,7 @@ __all__ = [
     "response_closed",
     "result_event",
     "resume_command",
+    "resume_marker",
     "run_agent",
     "run_fused_problem",
     "sample_aggregate_throughput",
@@ -585,8 +589,13 @@ AGENT_START_STAGGER_MAX_SECONDS = float(os.environ.get("AGENT_START_STAGGER_MAX_
 AGENT_START_CONCURRENCY = int(os.environ.get("AGENT_START_CONCURRENCY", "8"))
 
 #: Attempts to launch an agent that CRASHES (died without our caps and without a closing result event). A timeout is
-#: not a crash: relaunching it would grant a second budget its peers never had.
+#: not a crash: relaunching it would grant a second budget its peers never had. A claude agent resumes its own session
+#: in its own workspace (``Harness.resume_point``); only one with nothing to resume from starts over.
 AGENT_CRASH_ATTEMPTS = int(os.environ.get("AGENT_CRASH_ATTEMPTS", "3"))
+CRASH_RESUME_PROMPT = (
+    "The connection to the model dropped and your last reply was lost. Your files and history are intact. "
+    "Continue the task from where you were; do not ask for confirmation, no one will answer."
+)
 
 #: Attempts to get an agent's MCP server connected: without it the agent silently runs with no score/submit tools.
 AGENT_MCP_ATTEMPTS = int(os.environ.get("AGENT_MCP_ATTEMPTS", "3"))
@@ -2133,6 +2142,8 @@ def harness_spec(name: str) -> Harness:
         fold_tokens=accumulate_total_tokens,
         fold_output_tokens=token_cost.accumulate_output_tokens,
         closing=claude_closing,
+        resume_point=claude_session,
+        resume=resume_command,
     )
 
 
@@ -2197,10 +2208,37 @@ def claude_command(context: Context) -> list[str]:
     ]
 
 
-def resume_command(context: Context, session: str) -> list[str]:
-    """:func:`claude_command` continuing ``session`` with :data:`NUDGE_PROMPT` in place of the task prompt."""
-    command = claude_command(context._replace(prompt=NUDGE_PROMPT))
+def resume_command(context: Context, session: str, prompt: str = NUDGE_PROMPT) -> list[str]:
+    """:func:`claude_command` continuing ``session`` with ``prompt`` in place of the task prompt."""
+    command = claude_command(context._replace(prompt=prompt))
     return [command[0], "--resume", session, *command[1:]]
+
+
+#: How a claude transcript's ``init`` line starts; every leg (first run, nudge, resume) writes one.
+INIT_PREFIX = '{"type":"system","subtype":"init"'
+
+
+def claude_session(workdir: pathlib.Path) -> str:
+    """The claude session a crashed leg ran in (its log's last ``init`` line), ``""`` when the log has none."""
+    session = ""
+    with contextlib.suppress(OSError), (workdir / "claude.log").open(encoding="utf-8", errors="replace") as log:
+        for line in log:
+            if line.startswith(INIT_PREFIX):
+                with contextlib.suppress(ValueError):
+                    session = str(as_block(json.loads(line)).get("session_id") or "") or session
+    return session
+
+
+def resume_marker(session: str, returncode: int, attempt: int) -> str:
+    """The transcript line where a crashed leg's session is resumed (``token_cost.RESUME_SUBTYPE``)."""
+    event = {
+        "type": "system",
+        "subtype": token_cost.RESUME_SUBTYPE,
+        "session_id": session,
+        "returncode": returncode,
+        "attempt": attempt,
+    }
+    return "\n" + json.dumps(event, sort_keys=True) + "\n"
 
 
 def nudge_wanted(harness: Harness, returncode: int, crashed: bool, workdir: pathlib.Path, nudges: int) -> str:
@@ -2723,33 +2761,50 @@ def run_agent(
                             "\nagent_driver: ended after its single submission (exited before the watcher saw it)\n"
                         )
                         returncode, attempt_crashed = RC_SUBMITTED, False
-                    session = "" if spent else nudge_wanted(harness, returncode, attempt_crashed, workdir, nudges)
+                    # A crash resumes its own session in this workspace and log, so its tokens keep counting.
+                    resuming = attempt_crashed and crash_attempts < AGENT_CRASH_ATTEMPTS and not spent
+                    session = harness.resume_point(workdir) if resuming else ""
+                    if not session:
+                        resuming = False
+                        session = "" if spent else nudge_wanted(harness, returncode, attempt_crashed, workdir, nudges)
                     if not session:
                         break
                     # The next leg appends to this log; its result event counts only its own turns.
-                    nudge_turns += harness.closing(workdir).turns
-                    nudges += 1
-                    log.write(f"\nagent_driver: ended without submitting; nudge {nudges} of {AGENT_NUDGES}\n")
+                    leg_turns = harness.closing(workdir).turns
+                    nudge_turns += leg_turns
+                    log.flush()
+                    before = log_path.stat().st_size
+                    if resuming:
+                        log.write(f"\nagent_driver: agent crashed (rc={returncode}); resuming from {session}\n")
+                        log.write(resume_marker(session, returncode, crash_attempts + 1))
+                    else:
+                        log.write(f"\nagent_driver: ended without submitting; nudge {nudges + 1} of {AGENT_NUDGES}\n")
                     log.flush()
                     since = log_path.stat().st_size
+                    leg = (
+                        harness.resume(context, session, CRASH_RESUME_PROMPT)
+                        if resuming
+                        else resume_command(context, session)
+                    )
                     try:
-                        process, _ = start_agent(
-                            [*seal, *resume_command(context, session)],
-                            agent_dir,
-                            environment,
-                            log,
-                            log_path,
-                            cpus,
-                            memory_bytes,
-                            since,
-                        )
+                        if harness.mcp_gate:
+                            process, _ = start_agent(
+                                [*seal, *leg], agent_dir, environment, log, log_path, cpus, memory_bytes, since
+                            )
+                        else:
+                            process = start_runner([*seal, *leg], agent_dir, environment, log, cpus, memory_bytes)
                     except McpUnavailable:
-                        # Dropped, so the ended leg's result stays the attempt's closing.
-                        log.seek(since)
+                        # Dropped, so the ended leg's result stays the attempt's closing (a crash then starts over).
+                        log.seek(before)
                         log.truncate()
-                        log.write("agent_driver: the nudge's MCP did not connect; not nudged\n")
-                        nudge_turns -= harness.closing(workdir).turns
+                        log.write("agent_driver: the next leg's MCP did not connect; not continued\n")
+                        nudge_turns -= leg_turns
                         break
+                    if resuming:
+                        append_attempt(attempts_path, crash_attempts, attempt_start_ms, returncode, True, False)
+                        crash_attempts += 1
+                    else:
+                        nudges += 1
                 relaunching = bool(attempt_crashed and crash_attempts < AGENT_CRASH_ATTEMPTS and not spent)
                 note_relaunch(
                     log,

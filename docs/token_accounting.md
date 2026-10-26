@@ -48,10 +48,13 @@ therefore change no card. The measured engine hit rate is a diagnostic only.
 
 ## Final attempt only
 
-A crashed agent is relaunched from an empty context and an empty workspace, at most
-`AGENT_CRASH_ATTEMPTS` (3) times within one wall-clock limit. No part of the graded answer came from
-an earlier attempt, so the task is priced on its **final attempt** (`token_cost.episode_totals`). Earlier
-attempts are reported beside it, never added:
+A crashed agent resumes its own conversation in its own workspace (scoring.md T5), at most
+`AGENT_CRASH_ATTEMPTS` (3) times within one wall-clock limit, appending to the same transcript: one attempt,
+every leg counted once. In a claude transcript the request a crash cut off (a `message_start` with no
+`message_delta`) is dropped at the driver's `driver_resume` line, because the resumed leg sends its prompt again;
+a runner's cut-off call never wrote a usage line. Only a harness with nothing to resume from is relaunched from an
+empty context and workspace; such a task is priced on its **final attempt** (`token_cost.episode_totals`), and
+earlier attempts are reported beside it, never added:
 
 | column (`record = 'task'`) | holds |
 |---|---|
@@ -88,7 +91,7 @@ plot the raw `tokens` column, that is, the `effective` card.
 | cap | scope |
 |---|---|
 | `AGENT_TIMEOUT_SECONDS` | the task: one deadline shared by every attempt |
-| `AGENT_MAX_TOKENS` | one attempt: the counter resets on relaunch, since each attempt writes a new transcript |
+| `AGENT_MAX_TOKENS` | one attempt, resumed legs included; the counter resets only on a fresh relaunch |
 | `AGENT_MAX_OUTPUT_TOKENS` | one attempt: generated tokens (replies and reasoning) only; the one budget the prompt states |
 
 The prompt states `AGENT_MAX_OUTPUT_TOKENS` and "there is no time limit"; the other two caps are never shown to the

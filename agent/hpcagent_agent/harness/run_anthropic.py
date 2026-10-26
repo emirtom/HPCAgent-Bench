@@ -170,12 +170,17 @@ async def converse(
     *,
     system: str = "",
     window: runner_common.HistoryWindow | None = None,
+    history: Sequence[dict[str, Any]] = (),
+    checkpoint: bool = False,
 ) -> tuple[runner_common.EndReason, str, str]:
-    """Run the tool-use loop from ``prompt`` to its end; return (end reason, detail, the last reply's text)."""
+    """Run the tool-use loop from ``prompt`` (after ``history``, a resumed episode's) to its end; return (end reason,
+    detail, the last reply's text). With ``checkpoint`` the history is saved before every request."""
     tools = [tool.to_dict() for tool in runnable.values()]
-    messages: list[dict[str, Any]] = []
+    messages: list[dict[str, Any]] = list(history)
     transcript.append(messages, {"role": "user", "content": prompt})
     while True:
+        if checkpoint:
+            runner_common.save_checkpoint(args.workdir, messages)
         sent = window.view(messages) if window is not None else messages
         async with client.messages.stream(**request_params(args, sent, tools, system)) as stream:
             reply = await stream.get_final_message()
@@ -262,9 +267,19 @@ async def run_episode_async(
         if staged:
             runnable[subagents.TASK_TOOL] = task_tool(client, args, usage_log, dict(runnable), staged)
         print(f"harness: tools ready: {', '.join(sorted(runnable))}", flush=True)
-        prompt = args.prompt.read_text(encoding="utf-8")
+        resuming = bool(args.resume_prompt)
+        prompt = args.resume_prompt if resuming else args.prompt.read_text(encoding="utf-8")
+        history = runner_common.load_checkpoint(args.workdir) if resuming else []
         reason, detail, _text = await converse(
-            client, args, usage_log, Transcript(args.workdir / TRANSCRIPT), runnable, prompt, window=window
+            client,
+            args,
+            usage_log,
+            Transcript(args.workdir / TRANSCRIPT),
+            runnable,
+            prompt,
+            window=window,
+            history=history,
+            checkpoint=True,
         )
         return reason, detail
 

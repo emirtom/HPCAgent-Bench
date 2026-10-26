@@ -13,6 +13,7 @@ from collections.abc import Callable, Mapping
 from typing import NamedTuple, cast
 
 from hpcagent_agent.driver import effort
+from hpcagent_agent.harness import runner_common
 from hpcagent_agent.harness.runner_common import EndReason
 
 __all__ = [
@@ -45,6 +46,7 @@ __all__ = [
     "accumulate_usage_tokens",
     "anthropic_command",
     "call_tokens",
+    "checkpoint_point",
     "client_effort",
     "compaction_args",
     "context_policy",
@@ -154,6 +156,16 @@ class Harness(NamedTuple):
     #: The fold of generated tokens alone, what ``AGENT_MAX_OUTPUT_TOKENS`` caps.
     fold_output_tokens: Callable[[list[str], dict[str, int]], int]
     closing: Callable[[pathlib.Path], Closing]
+    #: Where a crashed episode can be resumed from (claude's session id, a runner's checkpoint); "" when nowhere.
+    resume_point: Callable[[pathlib.Path], str]
+    #: The command that resumes from a ``resume_point`` with a message: (context, point, message).
+    resume: Callable[[Context, str, str], list[str]]
+
+
+def checkpoint_point(workdir: pathlib.Path) -> str:
+    """A runner's resume point: its checkpoint file, when it wrote one."""
+    path = workdir / runner_common.CHECKPOINT
+    return str(path) if path.is_file() else ""
 
 
 def json_object(raw: object) -> dict[str, object] | None:
@@ -516,6 +528,8 @@ def runner(
         fold_tokens=accumulate_usage_tokens,
         fold_output_tokens=accumulate_usage_output_tokens,
         closing=end_closing,
+        resume_point=checkpoint_point,
+        resume=lambda context, _point, message: [*command(context), "--resume-prompt", message],
     )
 
 
