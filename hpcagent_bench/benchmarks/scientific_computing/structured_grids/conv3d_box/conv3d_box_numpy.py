@@ -6,8 +6,6 @@ Derived from HPCAgent-Bench scientific_computing/structured_grids/conv_3d: the s
 padding done by the input generator (``padded`` is the padded grid, ``K = 2R + 1``).
 """
 
-import numpy as np
-
 
 def conv3d_box(padded, w_box, out_grid, N, K):
     # array shapes (numpy->dace): padded=(N+K-1,N+K-1,N+K-1), w_box=(K,K,K), out_grid=(N,N,N)

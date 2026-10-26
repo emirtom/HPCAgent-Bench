@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 from types import ModuleType
-from typing import Optional
 
 import numpy as np
 from hpcagent_bench.support.counter_generator import CounterGenerator

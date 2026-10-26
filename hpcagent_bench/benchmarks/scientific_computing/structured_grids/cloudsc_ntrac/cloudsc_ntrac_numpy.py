@@ -18,8 +18,6 @@ Shapes: ``q`` and ``pflux`` are (NTRAC, NLEV, KLON); ``dtgdp``, ``rdtgdp``, ``rh
 recurrences are carried down the levels ``jk``.
 """
 
-import numpy as np
-
 
 def cloudsc_ntrac(q, pflux, vfall, dtgdp, rdtgdp, rho, za, prec, pcov, NLEV, KLON, NTRAC):
     # array shapes (numpy->dace): q=(NTRAC,NLEV,KLON), pflux=(NTRAC,NLEV,KLON), vfall=(NTRAC,),
