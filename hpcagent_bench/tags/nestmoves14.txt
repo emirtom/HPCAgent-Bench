@@ -1,5 +1,5 @@
 # NestForge stage 2 (loop-nest moves): kernels where a reasoned move sequence beats the default schedule.
-# Solutions and decoys: experiments/studies/nestmoves14.md.
+# Solutions and decoys: experiments/studies/benchmarking_nestforge.md.
 cloudsc_lateral_drift
 cloudsc_nproma
 cloudsc_ntrac
