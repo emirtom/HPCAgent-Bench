@@ -96,7 +96,9 @@ class EndReason(Coded):
 
 #: Exception class names (anywhere in the cause chain or MRO) that set the end reason.
 CONTEXT_OVERFLOW_TYPES = frozenset({"ContextWindowExceededError", "LLMContextWindowExceedError"})
-API_TIMEOUT_TYPES = frozenset({"Timeout", "APITimeoutError", "LLMTimeoutError"})
+#: A lost request: a timeout, or a connection dropped before or during the reply (httpx's ``TransportError`` raw
+#: from a stream); the driver resumes it, as it does the claude CLI's "response stopped arriving".
+API_TIMEOUT_TYPES = frozenset({"Timeout", "APITimeoutError", "LLMTimeoutError", "APIConnectionError", "TransportError"})
 #: The over-long-prompt refusals neither SDK maps to its own type (vLLM/SGLang, and the Messages API).
 CONTEXT_OVERFLOW_MARKS = ("maximum context length", "longer than the model's context length", "prompt is too long")
 
