@@ -1,11 +1,10 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Standalone-TU e2e test for viterbi: the emitted kernel plus a self-checking driver embedding the inputs and the
+"""Standalone-TU inputs for viterbi: the emitted kernel plus a self-checking driver embedding the inputs and the
 numpy ``path`` in one executable (newaxis broadcast, axis argmax, row store, column gather)."""
 
 import importlib.util
 import sys
-import tempfile
 
 import numpy as np
 
@@ -15,6 +14,7 @@ from tests.translators import native_tu as tu
 
 VIT_DIR = tu.REPO / "hpcagent_bench" / "benchmarks" / "scientific_computing" / "graphical_models" / "viterbi"
 NUMPY_PY = VIT_DIR / "viterbi_numpy.py"
+KERNEL = "viterbi"
 
 # Small distinct dims (M != K, T != both) keep the embedded literals compact
 # while still exercising every shape path.
@@ -112,27 +112,3 @@ program test_viterbi
     end do
 end program test_viterbi
 """
-
-
-@tu.have_gcc
-def test_viterbi_c_standalone_tu() -> None:
-    with tempfile.TemporaryDirectory() as d:
-        src = tu.emit_source("viterbi", NUMPY_PY, "c", d)
-    r = tu.build_run_c(src, c_driver())
-    assert r.returncode == 0, r.stdout + r.stderr
-
-
-@tu.have_gpp
-def test_viterbi_cpp_standalone_tu() -> None:
-    with tempfile.TemporaryDirectory() as d:
-        src = tu.emit_cpp_source("viterbi", NUMPY_PY, d)
-    r = tu.build_run_c(src, c_driver(), cpp=True)
-    assert r.returncode == 0, r.stdout + r.stderr
-
-
-@tu.have_gfortran
-def test_viterbi_fortran_standalone_tu() -> None:
-    with tempfile.TemporaryDirectory() as d:
-        src = tu.emit_source("viterbi", NUMPY_PY, "fortran", d)
-    r = tu.build_run_fortran(src, f_driver())
-    assert r.returncode == 0, r.stdout + r.stderr

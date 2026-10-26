@@ -1,6 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Standalone-TU e2e test for the kmp kernel (finite-state-machine dwarf).
+"""Standalone-TU inputs for the kmp kernel (finite-state-machine dwarf).
 
 The emitted kernel is compiled into a SINGLE translation unit with a self-checking
 driver that embeds the text + pattern and the numpy-reference occurrence count,
@@ -10,7 +10,6 @@ build + scan (nested while with a compound condition and index fall-back).
 
 import importlib.util
 import sys
-import tempfile
 
 import numpy as np
 
@@ -18,6 +17,7 @@ from tests.translators import native_tu as tu
 
 DIR = tu.REPO / "hpcagent_bench" / "benchmarks" / "scientific_computing" / "finite_state_machine" / "kmp"
 NUMPY_PY = DIR / "kmp_numpy.py"
+KERNEL = "kmp"
 
 N, M = 256, 5
 
@@ -87,27 +87,3 @@ program test_kmp
     end if
 end program test_kmp
 """
-
-
-@tu.have_gcc
-def test_kmp_c_standalone_tu() -> None:
-    with tempfile.TemporaryDirectory() as d:
-        src = tu.emit_source("kmp", NUMPY_PY, "c", d)
-    r = tu.build_run_c(src, c_driver())
-    assert r.returncode == 0, r.stdout + r.stderr
-
-
-@tu.have_gpp
-def test_kmp_cpp_standalone_tu() -> None:
-    with tempfile.TemporaryDirectory() as d:
-        src = tu.emit_cpp_source("kmp", NUMPY_PY, d)
-    r = tu.build_run_c(src, c_driver(), cpp=True)
-    assert r.returncode == 0, r.stdout + r.stderr
-
-
-@tu.have_gfortran
-def test_kmp_fortran_standalone_tu() -> None:
-    with tempfile.TemporaryDirectory() as d:
-        src = tu.emit_source("kmp", NUMPY_PY, "fortran", d)
-    r = tu.build_run_fortran(src, f_driver())
-    assert r.returncode == 0, r.stdout + r.stderr

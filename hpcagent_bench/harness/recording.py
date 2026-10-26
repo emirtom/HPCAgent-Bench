@@ -64,7 +64,6 @@ __all__ = [
     "db_path",
     "db_shard",
     "device_tag",
-    "ensure_aggregated",
     "envelope_values",
     "grade_denominator",
     "graded_detail",
@@ -368,18 +367,6 @@ def aggregate(dest: str | None = None, sources: Sequence[str] | None = None) -> 
         return 0
     with results_db.rebuilding(target) as scratch:
         return sum(results_db.merge(scratch, shards).values())
-
-
-def ensure_aggregated(path: str | None = None) -> str:
-    """The DB a reader should open, rebuilding the aggregate first when it is missing or older than a shard."""
-    target = path or base_db_path()
-    shards = shard_paths(target)
-    if not shards:
-        return target
-    newest_shard = max(pathlib.Path(s).stat().st_mtime for s in shards)
-    if not pathlib.Path(target).exists() or pathlib.Path(target).stat().st_mtime < newest_shard:
-        aggregate(target, shards)
-    return target
 
 
 def connect(path: str | None = None) -> sqlite3.Connection:

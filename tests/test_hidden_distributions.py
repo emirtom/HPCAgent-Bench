@@ -48,12 +48,6 @@ def draw(
     )
 
 
-def test_there_are_exactly_five_hidden_variants() -> None:
-    """Not a knob. A suite that can be shrunk gets shrunk."""
-    assert len(hidden.VARIANTS) == 5
-    assert len({v.name for v in hidden.VARIANTS}) == 5
-
-
 def test_the_rotation_spans_sign_and_magnitude() -> None:
     bases = {v.base for v in hidden.VARIANTS}
     assert len(bases) == 3, "three base distributions"

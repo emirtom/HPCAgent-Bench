@@ -1,11 +1,10 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Standalone-TU e2e test for hmm_forward: the emitted kernel plus a self-checking driver embedding the HMM
+"""Standalone-TU inputs for hmm_forward: the emitted kernel plus a self-checking driver embedding the HMM
 parameters and the numpy log-likelihood."""
 
 import importlib.util
 import sys
-import tempfile
 
 import numpy as np
 
@@ -15,6 +14,7 @@ from tests.translators import native_tu as tu
 
 DIR = tu.REPO / "hpcagent_bench" / "benchmarks" / "scientific_computing" / "graphical_models" / "hmm_forward"
 NUMPY_PY = DIR / "hmm_forward_numpy.py"
+KERNEL = "hmm_forward"
 
 T, K, M = 40, 8, 5
 
@@ -99,27 +99,3 @@ program test_hmm_forward
     end if
 end program test_hmm_forward
 """
-
-
-@tu.have_gcc
-def test_hmm_forward_c_standalone_tu() -> None:
-    with tempfile.TemporaryDirectory() as d:
-        src = tu.emit_source("hmm_forward", NUMPY_PY, "c", d)
-    r = tu.build_run_c(src, c_driver())
-    assert r.returncode == 0, r.stdout + r.stderr
-
-
-@tu.have_gpp
-def test_hmm_forward_cpp_standalone_tu() -> None:
-    with tempfile.TemporaryDirectory() as d:
-        src = tu.emit_cpp_source("hmm_forward", NUMPY_PY, d)
-    r = tu.build_run_c(src, c_driver(), cpp=True)
-    assert r.returncode == 0, r.stdout + r.stderr
-
-
-@tu.have_gfortran
-def test_hmm_forward_fortran_standalone_tu() -> None:
-    with tempfile.TemporaryDirectory() as d:
-        src = tu.emit_source("hmm_forward", NUMPY_PY, "fortran", d)
-    r = tu.build_run_fortran(src, f_driver())
-    assert r.returncode == 0, r.stdout + r.stderr

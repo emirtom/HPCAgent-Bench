@@ -257,7 +257,8 @@ def test_native_run_records_and_saves_submission(tmp_path: pathlib.Path, monkeyp
     assert sub_file.exists()
     assert "gemm_fp64" in sub_file.read_text()
     # ... and its grade reached the agent's trajectory under the episode id
-    assert {row["label"] for row in calls(recording.ensure_aggregated(db))} == {"nrun"}
+    recording.aggregate(db)
+    assert {row["label"] for row in calls(db)} == {"nrun"}
 
 
 # Part D: the distributed path hands its identity to the JudgeClient's env channel

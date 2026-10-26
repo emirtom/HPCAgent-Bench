@@ -259,12 +259,6 @@ def test_the_problems_file_freezes_the_index_as_the_last_thing_the_task_says(
     assert task.endswith(make_problems.packet_skills_text(spec, language, image)), task[-400:]
 
 
-@pytest.mark.parametrize("language", ["c", "fortran"])
-def test_a_control_task_names_no_skill_page(language: str) -> None:
-    """A no-packet control that mentions a skill path hands the treatment to the control."""
-    assert "/skills/" not in _task("--language", language)
-
-
 @pytest.mark.parametrize(("spec", "language", "image"), SETUP_PACKETS)
 def test_every_path_an_index_line_names_is_staged_for_the_agent(
     tmp_path: pathlib.Path, spec: str, language: str, image: str

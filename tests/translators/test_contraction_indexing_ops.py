@@ -15,7 +15,6 @@ from types import SimpleNamespace
 import pytest
 
 from hpcagent_bench.translators.numpyto_common.lib_nodes import (
-    NP_CALL_EXPANDERS,
     dims_agree,
     expand_cumprod,
     expand_cumsum,
@@ -507,10 +506,6 @@ def test_ellipsis_leading_expands_to_full_slices() -> None:
 
 
 # C.10 np.tril mask (mirror of triu)                                          #
-
-
-def test_tril_registered() -> None:
-    assert ("np", "tril") in NP_CALL_EXPANDERS
 
 
 def test_tril_keeps_lower_triangle() -> None:

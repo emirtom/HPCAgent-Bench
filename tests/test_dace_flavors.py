@@ -20,7 +20,6 @@ from hpcagent_bench.frameworks.dace_framework import (
 from hpcagent_bench.frameworks.framework import (
     check_flavor_registry,
     framework_flavors,
-    split_flavor,
 )
 from hpcagent_bench.harness import preflight
 from hpcagent_bench.registry import RegistryError
@@ -108,37 +107,6 @@ def test_every_dace_flavor_is_a_deterministic_column_unless_it_autotunes() -> No
 
 
 @pytest.mark.parametrize(
-    ("flavor", "expected"),
-    [
-        ("dace_cpu_autoopt", ("dace_cpu", "autoopt")),
-        ("dace_cpu_canon", ("dace_cpu", "canon")),
-        ("dace_gpu_autoopt", ("dace_gpu", "autoopt")),
-        ("dace_cpu", ("dace_cpu", None)),
-        ("numpy", ("numpy", None)),
-    ],
-)
-def test_the_flat_name_splits_into_framework_and_flavor(flavor: str, expected: tuple[str, str | None]) -> None:
-    """One name on the CLI, two columns in the DB -- so `GROUP BY framework` still gathers every
-    DaCe row instead of scattering it across five names."""
-    assert split_flavor(flavor) == expected
-
-
-def test_the_split_is_declared_not_parsed() -> None:
-    """``dace_cpu_autoopt`` reads equally well as ``dace_cpu`` + ``autoopt`` or ``dace`` +
-    ``cpu_parallel``; no underscore rule can tell them apart, so the entry states both halves.
-
-    Pinned because the tempting shortcut -- derive the column by stripping the flavor suffix -- is
-    only unambiguous while no framework named ``dace`` exists, and it would start returning a
-    different answer on the day one is registered."""
-    column = FRAMEWORKS.entries["dace_cpu_autoopt"]
-    assert (column.column, column.flavor) == ("dace_cpu", "autoopt")
-    assert split_flavor("dace_cpu_autoopt") == ("dace_cpu", "autoopt")
-    # The alternative reading composes to the same flat name, which is exactly why parsing cannot
-    # decide between them -- and why declaring is the only safe answer.
-    assert "dace_cpu_autoopt" == "dace" + "_" + "cpu_autoopt"
-
-
-@pytest.mark.parametrize(
     ("broken", "why"),
     [
         ({"flavor": "parallel", "column": None}, "flavor without a column"),
@@ -169,10 +137,11 @@ def test_a_two_device_backend_names_its_columns_by_device(monkeypatch: pytest.Mo
 
 def test_the_registry_as_shipped_is_valid() -> None:
     check_flavor_registry()
-    for name in FRAMEWORKS.entries:
-        column, flavor = split_flavor(name)
-        assert column in FRAMEWORKS.entries
-        assert (flavor is None) or name == f"{column}_{flavor}"
+    for name, entry in FRAMEWORKS.entries.items():
+        if entry.flavor is None or entry.column is None:
+            continue
+        assert entry.column in FRAMEWORKS.entries
+        assert name == f"{entry.column}_{entry.flavor}"
 
 
 def test_ranks_per_node_splits_the_node() -> None:

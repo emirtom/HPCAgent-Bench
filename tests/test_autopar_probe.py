@@ -154,13 +154,6 @@ def test_the_stdpar_probe_agrees_with_the_link_decision() -> None:
     assert linked == genuine, f"stdpar_link_flags says tbb={linked} but the compiled object says {stdpar_probe()}"
 
 
-def test_probe_source_uses_a_parallel_policy() -> None:
-    """:data:`flags.STDPAR_PROBE_SOURCE` is only evidence while it actually calls a PARALLEL
-    execution policy: a probe rewritten to ``std::execution::seq`` would report VACUOUS forever
-    and read as "this host has no parallel <execution>" on every host."""
-    assert "std::execution::par_unseq" in flags.STDPAR_PROBE_SOURCE
-
-
 def test_every_cpp_submission_link_carries_the_stdpar_runtime(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

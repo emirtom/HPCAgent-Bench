@@ -1,6 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Standalone-TU e2e test for the nqueens kernel (backtrack/branch&bound dwarf).
+"""Standalone-TU inputs for the nqueens kernel (backtrack/branch&bound dwarf).
 
 The emitted kernel is compiled into a SINGLE translation unit together with a
 self-checking driver that embeds the known N-queens solution counts (OEIS
@@ -9,11 +9,9 @@ program exit nonzero. Covered: the iterative explicit-stack rewrite + the int64
 inference for ``np.int64`` casts and local int64 stack arrays.
 """
 
-import tempfile
-
 from tests.translators import native_tu as tu
 
-SHORT = "nqueens"
+KERNEL = "nqueens"
 NUMPY_PY = (
     tu.REPO
     / "hpcagent_bench"
@@ -74,25 +72,9 @@ end program test_nqueens
 """
 
 
-@tu.have_gcc
-def test_nqueens_c_standalone_tu() -> None:
-    with tempfile.TemporaryDirectory() as d:
-        src = tu.emit_source(SHORT, NUMPY_PY, "c", d)
-    r = tu.build_run_c(src, C_DRIVER)
-    assert r.returncode == 0, r.stdout + r.stderr
+def c_driver() -> str:
+    return C_DRIVER
 
 
-@tu.have_gpp
-def test_nqueens_cpp_standalone_tu() -> None:
-    with tempfile.TemporaryDirectory() as d:
-        src = tu.emit_cpp_source(SHORT, NUMPY_PY, d)
-    r = tu.build_run_c(src, C_DRIVER, cpp=True)
-    assert r.returncode == 0, r.stdout + r.stderr
-
-
-@tu.have_gfortran
-def test_nqueens_fortran_standalone_tu() -> None:
-    with tempfile.TemporaryDirectory() as d:
-        src = tu.emit_source(SHORT, NUMPY_PY, "fortran", d)
-    r = tu.build_run_fortran(src, F_DRIVER)
-    assert r.returncode == 0, r.stdout + r.stderr
+def f_driver() -> str:
+    return F_DRIVER
