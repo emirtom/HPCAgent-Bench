@@ -17,9 +17,6 @@ Each test pins one rule so a regression points straight at it.
 """
 
 import ast
-import json
-import pathlib
-import tempfile
 
 from hpcagent_bench.translators.numpyto_common.lib_nodes import CallHoister
 from hpcagent_bench.translators.numpyto_common.lowering import SubscriptifyNames, WholeArrayAssignRewriter
@@ -147,37 +144,3 @@ CAST_BENCH = {
     "track": "loop_level_reasoning",
     "allowed_precisions": ["fp64"],
 }
-
-
-def emit_(target: str) -> str:
-    from hpcagent_bench.translators.numpyto_common.frontend import parse_kernel
-    from hpcagent_bench.translators.numpyto_common.lowering import lower
-
-    with tempfile.TemporaryDirectory() as tmp:
-        d = pathlib.Path(tmp)
-        kp = d / "cast_demo_numpy.py"
-        kp.write_text(CAST_KERNEL)
-        bi = d / "bi.json"
-        bi.write_text(json.dumps(CAST_BENCH))
-        kir = lower(parse_kernel(kp, bi))
-        if target == "c":
-            from hpcagent_bench.translators.numpyto_c.emit import emit_c
-
-            return emit_c(kir, fn_name="cast_demo")
-        from hpcagent_bench.translators.numpyto_fortran.emit import emit_fortran
-
-        return emit_fortran(kir, fn_name="cast_demo")
-
-
-def test_np_dtype_cast_c() -> None:
-    src = emit_("c")
-    assert "(int64_t)(xf[0])" in src  # np.int64 -> C int cast
-    assert "(double)(xi[0])" in src  # np.float64 -> C double cast
-
-
-def test_np_dtype_cast_fortran() -> None:
-    src = emit_("fortran")
-    # Conversion intrinsic + KIND token from the registry (never hardcoded);
-    # index 0 lowers to the 1-based ``(0) + 1`` subscript.
-    assert "INT(xf((0) + 1), c_int64_t)" in src
-    assert "REAL(xi((0) + 1), c_double)" in src

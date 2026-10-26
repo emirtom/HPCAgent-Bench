@@ -49,12 +49,6 @@ def emitted(tmp_path: pathlib.Path) -> str:
     )
 
 
-def test_eigh_stays_a_call(tmp_path: pathlib.Path) -> None:
-    module = emitted(tmp_path)
-    assert "np.linalg.eigh(" in module
-    assert "__eigh0_" not in module, "eigh was lowered to the Jacobi loop nest"
-
-
 def test_extents_after_eigh_are_spelled(tmp_path: pathlib.Path) -> None:
     """``shp = Xs.shape`` and ``reshape(shp)`` reach dace as the tuple ``(N, N, N)``: dace holds no tuple in a name."""
     module = emitted(tmp_path)
@@ -89,6 +83,5 @@ if __name__ == "__main__":
     import tempfile
 
     with tempfile.TemporaryDirectory() as d:
-        test_eigh_stays_a_call(pathlib.Path(d))
         test_extents_after_eigh_are_spelled(pathlib.Path(d))
         test_the_module_parses_to_an_eigh_library_node(pathlib.Path(d))

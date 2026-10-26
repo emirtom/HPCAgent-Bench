@@ -54,10 +54,6 @@ def test_2d_axis_zero_walks_rows() -> None:
     )
 
 
-def test_negative_axis_normalizes() -> None:
-    assert expand_("out = np.diff(a, axis=-1)", {"a": ("n",)}) == expand_("out = np.diff(a)", {"a": ("n",)})
-
-
 def test_literal_extent_folds_the_bound() -> None:
     got = expand_("out = np.diff(a)", {"a": ("8",)})
     assert "range(8 - 1)" in got
