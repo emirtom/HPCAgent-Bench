@@ -19,6 +19,7 @@ import concurrent.futures
 import os
 import subprocess
 import sys
+import zlib
 
 import pytest
 
@@ -35,6 +36,12 @@ KERNELBENCH_TAG = "kernelbench"
 #: 42 before the tuple/isinstance desugar, 89 after it, 121 after the three rebound-name
 #: miscompile fixes (contraction extent, elementwise ufunc arg, parameter write-through).
 MIN_TRANSLATING = 121
+
+#: Per push (``HPCAGENT_BENCH_E2E_SUBSET=1``) the ports whose name hashes into one :data:`SAMPLE_STRIDE`-th, with
+#: its own floor; a dispatched run, all. A hash, not a position, so adding a port never shifts the others' sample.
+SAMPLE = os.environ.get("HPCAGENT_BENCH_E2E_SUBSET", "") == "1"
+SAMPLE_STRIDE = 10
+MIN_TRANSLATING_SAMPLE = 20
 
 #: Per-kernel wall clock. Every port that translates finishes within 31 s on one core (measured over all
 #: 250 at preset S); the ones that run longer are the large CNNs (densenet, resnet101, googlenet), none of
@@ -82,6 +89,11 @@ def translates(stem: str) -> bool:
     return done.stdout.strip().endswith("ok")
 
 
+def sampled(stem: str) -> bool:
+    """Whether ``stem`` is in the per-push sample: its name's CRC32 falls in one :data:`SAMPLE_STRIDE`-th."""
+    return zlib.crc32(stem.encode()) % SAMPLE_STRIDE == 0
+
+
 def test_the_subtrack_is_still_registered() -> None:
     """A ratchet over an empty set passes forever."""
     assert kernelbench_stems()
@@ -89,7 +101,8 @@ def test_the_subtrack_is_still_registered() -> None:
 
 @pytest.mark.integration
 def test_at_least_the_pinned_number_of_ports_translate() -> None:
-    stems = kernelbench_stems()
+    stems = [stem for stem in kernelbench_stems() if not SAMPLE or sampled(stem)]
+    floor = MIN_TRANSLATING_SAMPLE if SAMPLE else MIN_TRANSLATING
 
     def probe(stem: str) -> tuple[str, bool]:
         try:
@@ -105,11 +118,11 @@ def test_at_least_the_pinned_number_of_ports_translate() -> None:
     # ports can stop translating and this still passes -- which is exactly the silent come-down the
     # docstring says must not happen. Until the floor is tightened, the log is what makes a drop
     # visible.
-    print(f"kernelbench ports translating: {len(passing)}/{len(stems)} (floor {MIN_TRANSLATING})")
+    print(f"kernelbench ports translating: {len(passing)}/{len(stems)} (floor {floor})")
     if failing:
         print("not translating: " + " ".join(sorted(failing)))
-    assert len(passing) >= MIN_TRANSLATING, (
-        f"{len(passing)}/{len(stems)} kernelbench ports translate, floor is {MIN_TRANSLATING}. "
+    assert len(passing) >= floor, (
+        f"{len(passing)}/{len(stems)} kernelbench ports translate, floor is {floor}. "
         f"A DROP means a translator regression -- the first few that stopped working: "
         f"{sorted(set(failing))[:8]}"
     )

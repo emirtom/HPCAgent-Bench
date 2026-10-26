@@ -34,6 +34,8 @@ env:
   PYTHONHASHSEED: "0"
   # Every pytest collects coverage; the `coverage` job renders the only report.
   PYTEST_ADDOPTS: "--cov=hpcagent_bench --cov-append --cov-report="
+  # Per push and PR the corpus-wide sweeps cover the emit-coverage set and skip image builds; a dispatched run, all.
+  HPCAGENT_BENCH_E2E_SUBSET: ${{ github.event_name == 'workflow_dispatch' && '0' || '1' }}
 
 # A branch with an open PR is tested by its pull_request run only: listing it under push as well runs every
 # commit twice.
@@ -269,7 +271,6 @@ jobs:
         env:
           HPCAGENT_BENCH_E2E_BACKENDS: ${{ matrix.leg.backend }}
           HPCAGENT_BENCH_E2E_SHARD: ${{ matrix.leg.shard || '' }}
-          HPCAGENT_BENCH_E2E_SUBSET: ${{ github.event_name == 'workflow_dispatch' && '0' || '1' }}
         run: |
           python -m pytest -p no:cacheprovider -rfEs -n ${{ matrix.leg.workers }} --dist loadgroup --durations=25 \
             --timeout=900 tests/test_e2e_numerical.py
@@ -575,7 +576,6 @@ jobs:
         timeout-minutes: 16
         env:
           HPCAGENT_BENCH_E2E_BACKENDS: "pluto"
-          HPCAGENT_BENCH_E2E_SUBSET: ${{ github.event_name == 'workflow_dispatch' && '0' || '1' }}
         # Two workers: four polycc/isl runs at once exhausted the 16 GB runner (it is shut down mid-step).
         # The memory line names the largest process when it happens again.
         run: |
@@ -607,7 +607,6 @@ jobs:
         timeout-minutes: 9
         env:
           HPCAGENT_BENCH_E2E_BACKENDS: "c,cpp,fortran"
-          HPCAGENT_BENCH_E2E_SUBSET: ${{ github.event_name == 'workflow_dispatch' && '0' || '1' }}
           HPCAGENT_BENCH_E2E_PRECISION: "fp32"
         run: |
           python -m pytest -q -p no:cacheprovider -rfEs -n auto --dist loadgroup --timeout=600 tests/test_e2e_numerical.py
