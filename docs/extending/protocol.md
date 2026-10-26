@@ -80,7 +80,7 @@ budget:
 ```
 
 The submission mode is one key, `AGENT_SUBMISSION_MODE`. It picks the prompt template
-`agent/submission-<mode>.md` and every rule the tools and the judge router enforce:
+`agent/hpcagent_agent/templates/submission-<mode>.md` and every rule the tools and the judge router enforce:
 
 | Mode | Submissions | `score`, `profile` | Set by |
 |---|---|---|---|

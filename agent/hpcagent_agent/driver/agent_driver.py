@@ -1015,10 +1015,10 @@ MODE_SLOT = submission_mode.SLOT
 
 
 def mode_sections(mode: submission_mode.SubmissionMode | None = None) -> dict[str, str]:
-    """The sections of the submission mode's template: the shared-folder copy when staged, else the payload's."""
+    """The sections of the submission mode's template: the shared-folder copy when staged, else the package's."""
     mode = submission_mode.current() if mode is None else mode
     staged = resolve_shared_file(mode.template)
-    return submission_mode.template_sections(staged if staged.is_file() else agent_runtime() / mode.template)
+    return submission_mode.template_sections(staged if staged.is_file() else mode.template_path)
 
 
 def fill_mode_slots(prompt: str) -> str:

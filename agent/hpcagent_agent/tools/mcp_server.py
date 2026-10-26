@@ -6,7 +6,6 @@ import importlib
 import importlib.metadata
 import json
 import os
-import pathlib
 import pkgutil
 import re
 import sys
@@ -19,12 +18,11 @@ from mcp import types
 from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
 
-from hpcagent_agent import plugins, submission_mode
+from hpcagent_agent import mcp_sdk, plugins, submission_mode
 from hpcagent_agent import tools as tool_package
 from hpcagent_agent.tools.registry import Served, Setup, served
 
 __all__ = [
-    "AGENT_PAYLOAD_DIR",
     "ALLOWED_ORDER",
     "BULLET_HEAD",
     "LIST_ORDER",
@@ -100,22 +98,18 @@ def prompt_tool_list(offered: Mapping[str, Served], cli: bool = False) -> str:
     return f"{MCP_HEAD}\n\n{text}"
 
 
-#: The agent payload directory that holds the submission-mode templates (``agent/submission-<mode>.md``).
-AGENT_PAYLOAD_DIR = pathlib.Path(__file__).resolve().parents[2]
-
-
 def server_instructions(offered: Mapping[str, Served], environ: Mapping[str, str] = os.environ) -> str:
     """The ``initialize`` instructions: the prompt's tool list with the submission mode's slot filled (Claude Code
     injects them verbatim)."""
-    template = submission_mode.current(dict(environ)).template
-    sections = submission_mode.template_sections(AGENT_PAYLOAD_DIR / template)
-    return submission_mode.fill_slots(prompt_tool_list(offered), sections, template)
+    mode = submission_mode.current(dict(environ))
+    sections = submission_mode.template_sections(mode.template_path)
+    return submission_mode.fill_slots(prompt_tool_list(offered), sections, mode.template)
 
 
 def tool_definitions(offered: Mapping[str, Served]) -> list[types.Tool]:
     """What ``tools/list`` answers."""
     return [
-        types.Tool(name=name, description=entry.description, inputSchema=entry.input_schema)
+        types.Tool.model_validate({"name": name, "description": entry.description, "inputSchema": entry.input_schema})
         for name, entry in offered.items()
     ]
 
@@ -132,9 +126,9 @@ def answer(offered: Mapping[str, Served], name: str, arguments: dict[str, Any]) 
     """The ``tools/call`` result: the tool's JSON answer as text, an error exactly when it says ``ok: false``."""
     entry = offered.get(name)
     response = {"ok": False, "error": f"unknown tool: {name}"} if entry is None else call(entry, arguments)
-    return types.CallToolResult(
-        content=[types.TextContent(type="text", text=json.dumps(response, indent=2, sort_keys=True))],
-        isError=response.get("ok") is False,
+    text = json.dumps(response, indent=2, sort_keys=True)
+    return types.CallToolResult.model_validate(
+        {"content": [{"type": "text", "text": text}], "isError": response.get("ok") is False}
     )
 
 
@@ -143,15 +137,35 @@ def build_server(environ: Mapping[str, str] = os.environ) -> Server:
     thread."""
     offered = tools(environ)
     version = importlib.metadata.version("hpcagent-agent")
-    server: Server = Server(SERVER_NAME, version=version, instructions=server_instructions(offered, environ))
+    instructions = server_instructions(offered, environ)
 
-    @server.list_tools()
+    async def call(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
+        return await anyio.to_thread.run_sync(answer, offered, name, arguments)
+
+    if mcp_sdk.V2:
+        # 2.x: handlers are constructor arguments, called with the request context and the request's params.
+        async def list_tools_v2(context: Any, params: Any) -> types.ListToolsResult:  # noqa: ANN401, ARG001
+            return types.ListToolsResult(tools=tool_definitions(offered))
+
+        async def call_tool_v2(context: Any, params: Any) -> types.CallToolResult:  # noqa: ANN401, ARG001
+            return await call(params.name, dict(params.arguments or {}))
+
+        return Server(  # type: ignore[call-arg]  # the 2.x signature; 1.x is the branch below
+            SERVER_NAME,
+            version=version,
+            instructions=instructions,
+            on_list_tools=list_tools_v2,
+            on_call_tool=call_tool_v2,
+        )
+    server: Server = Server(SERVER_NAME, version=version, instructions=instructions)
+
+    @server.list_tools()  # type: ignore[attr-defined]  # the 1.x decorators
     async def list_tools() -> list[types.Tool]:
         return tool_definitions(offered)
 
-    @server.call_tool(validate_input=False)
+    @server.call_tool(validate_input=False)  # type: ignore[attr-defined]  # the 1.x decorators
     async def call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
-        return await anyio.to_thread.run_sync(answer, offered, name, arguments)
+        return await call(name, arguments)
 
     return server
 

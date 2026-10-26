@@ -172,11 +172,11 @@ dev = [
 # PEP 735 groups: never published with the distribution, and installed without the project's own
 # dependencies. Each is a stack that cannot share one resolution with the hardware extras.
 [dependency-groups]
-# The judge-agent images' LLM proxy the setups talk through, exactly as the recorded setups ran it; the
-# images install it after their hardware extra. litellm 1.94 needs rich<14, so harbor>=0.23 never
-# shares its environment.
+# The judge-agent images' LLM proxy the setups talk through; the images install it after their hardware
+# extra. 1.106 is the first litellm whose proxy takes mcp 2.x (hpcagent_agent.mcp_sdk). litellm's proxy stack
+# pins rich<14, so harbor>=0.23 never shares its environment.
 judge-proxy = [
-    "litellm[proxy]==1.94.0",  # the proxy every recorded setup talked through
+    "litellm[proxy]==1.106.4",
     "httpx2==2.12.0",  # the proxy stack the recorded setups ran
     "anyio==4.14.2",  # the proxy stack the recorded setups ran
 ]

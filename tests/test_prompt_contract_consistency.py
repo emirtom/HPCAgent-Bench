@@ -17,6 +17,7 @@ from http.server import ThreadingHTTPServer
 from typing import Any
 
 import pytest
+from hpcagent_agent import submission_mode
 
 from hpcagent_bench import languages, paths
 from hpcagent_bench.categories import Language
@@ -389,7 +390,7 @@ def test_the_prompt_ends_on_exhausting_every_optimization_and_never_giving_up() 
 
 
 def test_single_submission_says_scoring_is_unlimited_and_the_submission_is_one() -> None:
-    text = " ".join((PROMPT.parent / "submission-single.md").read_text(encoding="utf-8").split())
+    text = " ".join((submission_mode.TEMPLATES / "submission-single.md").read_text(encoding="utf-8").split())
     assert "You may `score` as many times as you want, but you get exactly ONE submission." in text
 
 

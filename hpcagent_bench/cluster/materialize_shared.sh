@@ -228,7 +228,7 @@ fi
 # fills the prompt's {{MODE:<section>}} slots from this launch-fresh copy. A glob, not `ls`: with no match
 # `ls` returns 1, which under `set -e` stops the whole staging run. An unmatched glob expands to itself,
 # which the -f test then rejects.
-for policy in "${repo}"/agent/submission-*.md; do
+for policy in "${repo}"/agent/hpcagent_agent/templates/submission-*.md; do
     [[ -f "${policy}" ]] || continue
     cp -f "${policy}" "${shared}/$(basename -- "${policy}")"
 done

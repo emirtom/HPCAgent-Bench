@@ -1305,7 +1305,12 @@ def test_a_reply_without_a_tool_call_ends_the_episode_by_its_stop_reason(
 
 FAKE_MCP_SERVER = """
 import json, os, pathlib
-from mcp.server.fastmcp import FastMCP
+try:  # mcp 2.x; only a ToolError's message reaches the client
+    from mcp.server.mcpserver import MCPServer as FastMCP
+    from mcp.server.mcpserver.exceptions import ToolError
+except ImportError:  # mcp 1.x
+    from mcp.server.fastmcp import FastMCP
+    from mcp.server.fastmcp.exceptions import ToolError
 
 server = FastMCP("fake-judge")
 
@@ -1322,7 +1327,7 @@ def score(source: str) -> str:
 @server.tool()
 def submit(source: str) -> str:
     \"\"\"Submit a source.\"\"\"
-    raise ValueError("submission refused: no score yet")
+    raise ToolError("submission refused: no score yet")
 
 
 server.run("stdio")
