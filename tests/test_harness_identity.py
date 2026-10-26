@@ -104,7 +104,6 @@ def test_every_harness_the_launcher_accepts_has_a_display_name() -> None:
     [
         ("claude", "Claude Code"),
         ("miniswe", "mini-SWE-agent"),
-        ("openhands", "OpenHands"),
         ("brand-new-harness", "brand-new-harness"),
     ],
 )

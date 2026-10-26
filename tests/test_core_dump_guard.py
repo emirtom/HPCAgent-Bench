@@ -62,8 +62,8 @@ def test_unguarded_shell_script_is_reported(tmp_path: pathlib.Path) -> None:
     good.write_text("#!/usr/bin/env bash\nset -euo pipefail\nulimit -c 0\nsrun ./kernel\n")
     assert checker_rc(good) == 0
 
-    # No suffix at all: hpcagent-bench-tool and bash-norc are both `#!/bin/sh` one-liners, and the
-    # suffix rule that replaced the .sbatch rule still walked straight past them.
+    # No suffix at all: hpcagent-bench-tool is a `#!/bin/sh` one-liner, and the
+    # suffix rule that replaced the .sbatch rule still walked straight past it.
     extensionless = tmp_path / "agent-tool"
     extensionless.write_text('#!/bin/sh\nexec python3 "$0.py" "$@"\n')
     assert checker_rc(extensionless) == 1, "a shell shebang is an entry point whatever it is called"

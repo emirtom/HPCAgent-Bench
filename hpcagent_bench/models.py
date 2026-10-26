@@ -56,9 +56,6 @@ HARNESSES.add("claude", "Claude Code")
 HARNESSES.add("miniswe", "mini-SWE-agent")
 
 
-HARNESSES.add("openhands", "OpenHands")
-
-
 HARNESSES.add("optimas", "Optimas")
 
 

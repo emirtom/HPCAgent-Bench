@@ -112,7 +112,7 @@ def run(payload: dict[str, Any]) -> dict[str, Any]: ...
   `/opt/hpcagent-bench-agent` (`HPCAGENT_BENCH_AGENT_DIR`). A new Python dependency goes in `agent/pyproject.toml`;
   the agent's launch venv installs it from `uv.lock`.
 
-Every harness consumes the same server: Claude Code, Codex and OpenHands as MCP clients over stdio, the native
+Every harness consumes the same server: Claude Code and Codex as MCP clients over stdio, the native
 Anthropic and OpenAI harnesses through the SDKs' MCP clients, and mini-SWE through `hpcagent-bench-tool`.
 
 ```bash

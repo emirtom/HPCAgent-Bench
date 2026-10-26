@@ -4,7 +4,7 @@ HPCAgent-Bench has two prompt systems. They share only the grading and file-name
 
 | Prompt | Who reads it | Source | Assembled by |
 |---|---|---|---|
-| Cluster prompt | agents on the cluster (Claude Code, mini-SWE, OpenHands, the optimas, anthropic and openai runners) | `agent/*.md` | `agent/hpcagent_agent/driver/agent_driver.py` |
+| Cluster prompt | agents on the cluster (Claude Code, mini-SWE, the optimas, anthropic and openai runners) | `agent/*.md` | `agent/hpcagent_agent/driver/agent_driver.py` |
 | In-process prompt | `hpcagent-bench agent` backends and the `--service` HTTP-loop prompt | `hpcagent_bench/harness/prompts/*.j2` | `build_prompt` in `hpcagent_bench/harness/prompts.py` |
 
 A fact written only into a `.j2` section never reaches a cluster agent; state cluster-agent facts in
@@ -25,7 +25,7 @@ swaps the file-tools paragraph for harnesses without Claude's `Read`/`Edit`.
 | `prompt-offload.md`, `prompt-offload-device.md` | + `offload-build.md`, `offload-device-build.md` |
 | `prompt-triton.md`, `prompt-triton-device.md` | + `triton-build.md`, `triton-device-build.md` |
 | `prompt-repo.md` | + `repo-workflow.md` |
-| `prompt-cli.md`, `prompt-openhands.md`, `prompt-native.md` | file-tools paragraph swapped for `tools-cli.md`, `tools-openhands.md`, `tools-native.md` (the optimas, anthropic and openai runners) |
+| `prompt-cli.md`, `prompt-native.md` | file-tools paragraph swapped for `tools-cli.md`, `tools-native.md` (the optimas, anthropic and openai runners) |
 
 Beside the prompt, every single-node setup's folder holds `signature.json` and `<module>_reference.<ext>`
 (`hpcagent_bench/cluster/stage_signature.py`): the NumpyToX CPU emit the judge compiles as its baseline, in the

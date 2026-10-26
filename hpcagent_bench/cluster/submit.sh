@@ -28,7 +28,7 @@
 #   MODELS            space-separated (default qwen38)
 #   LANGUAGES         space-separated (default: the base's LANGUAGE)
 #   PACKETS           space-separated packet specs, `none` for the control (default none)
-#   HARNESSES         claude (default), miniswe, openhands, optimas, anthropic, openai
+#   HARNESSES         claude (default), miniswe, optimas, anthropic, openai
 #   TEMPERATURES      sampling temperatures the serving engine applies, `default` for the model's own
 #                     (1.0 for every served model; default `default`). A setup at another value is
 #                     named -t<value> and records it in setups.temperature.
@@ -92,7 +92,7 @@ BEGIN=${BEGIN:-}
 [[ "${BEGIN}" != now ]] || BEGIN=""
 
 #: The task prompt of each harness but claude, which reads its language's prompt.
-declare -A HARNESS_PROMPT=([miniswe]=prompt-cli.md [openhands]=prompt-openhands.md [optimas]=prompt-native.md [anthropic]=prompt-native.md [openai]=prompt-native.md)
+declare -A HARNESS_PROMPT=([miniswe]=prompt-cli.md [optimas]=prompt-native.md [anthropic]=prompt-native.md [openai]=prompt-native.md)
 
 # base_value <flat env> <KEY> -> <KEY>'s value in a rendered base, empty when unset
 base_value() { sed -n "s/^$2=//p" <<<"$1" | tail -n 1; }

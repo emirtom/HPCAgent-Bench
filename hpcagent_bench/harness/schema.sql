@@ -35,7 +35,7 @@ CREATE TABLE setups (
     device     TEXT NOT NULL CHECK (device IN ('cpu', 'cpu-multinode', 'gpu', 'gpu-multinode')),
     packet     TEXT NOT NULL DEFAULT '',                -- skill packets, sorted, '+'-joined; '' = none
     harness    TEXT NOT NULL,                           -- what produced the code: an agent harness (claude,
-                                                        -- miniswe, openhands, autokernel) or a compiler
+                                                        -- miniswe, autokernel) or a compiler
                                                         -- (pluto, ppcg)
     temperature REAL NOT NULL DEFAULT 1.0,              -- sampling temperature the serving engine applied;
                                                         -- 1.0 is every served model's own default

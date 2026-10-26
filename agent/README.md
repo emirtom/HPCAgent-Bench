@@ -18,10 +18,10 @@ starts each agent and serves these benchmark tools through the MCP server `tools
 
 Harnesses without MCP use the same tool modules:
 
-- `hpcagent_agent/harness/run_miniswe.py`, `hpcagent_agent/harness/run_openhands.py`,
+- `hpcagent_agent/harness/run_miniswe.py`,
   `hpcagent_agent/harness/run_anthropic.py`, `hpcagent_agent/harness/run_openai.py`,
   `hpcagent_agent/harness/run_optimas.py` (shared code in `hpcagent_agent/harness/runner_common.py`): one
-  mini-SWE-agent, OpenHands, Anthropic Messages API, OpenAI Agents SDK or Optimas episode each, started by
+  mini-SWE-agent, Anthropic Messages API, OpenAI Agents SDK or Optimas episode each, started by
   the driver (`agent/hpcagent_agent/driver/harnesses.py`). The last three are MCP clients of the same
   server, plus one shell tool; Optimas runs the Agents SDK agent under its OPRO prompt search.
 - `bin/hpcagent-bench-tool`: shell CLI over the same `run()` functions (`hpcagent-bench-tool <tool> '<json>'`,
@@ -89,7 +89,7 @@ There are two templates and one set of facts.
 
 - **This directory** is the CLUSTER prompt. `materialize_shared.sh` stages `prompt.md` and composes one
   variant per `<variant>-build.md` addendum (`gpu`, `offload`, `offload-device`, `triton`,
-  `triton-device`), per `tools-<harness>.md` paragraph (`cli`, `openhands`, `native`) and for `repo-workflow.md`.
+  `triton-device`), per `tools-<harness>.md` paragraph (`cli`, `native`) and for `repo-workflow.md`.
   `agent/partials/` holds the text two addenda share, which an addendum line `@@include <name>@@`
   pulls in when the variant is composed. `agent_driver.py` reads the variant the setup's
   `AGENT_PROMPT_FILE` names, fills its slots (`{{TOOLS}}`, `{{BUILD_COMMAND}}` from `build-<language>.md`,

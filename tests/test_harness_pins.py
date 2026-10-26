@@ -34,10 +34,6 @@ PYTHON_HARNESSES: dict[str, str] = {
     "miniswe": (
         "import yaml, minisweagent.agents.default, minisweagent.environments.local, minisweagent.models.litellm_model"
     ),
-    "openhands": (
-        "import openhands.sdk.event.conversation_error, openhands.tools.file_editor, openhands.tools.preset.default, "
-        "openhands.tools.terminal"
-    ),
     "optimas": (
         "import agents, agents.exceptions, agents.mcp, agents.models.openai_chatcompletions, agents.run_config, "
         "litellm, openai, openai.types.shared, optimas.arch.base, optimas.optim.opro, optimas.wrappers.example"

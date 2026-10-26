@@ -44,7 +44,6 @@ WHERE: dict[str, str] = {
         for name in (
             "runner_common",
             "run_miniswe",
-            "run_openhands",
             "run_anthropic",
             "run_openai",
             "run_optimas",

@@ -81,7 +81,7 @@ class Auth(Coded):
 
 #: Harnesses that speak each wire format (by name: the agent payload is not staged on the batch host).
 HARNESSES_BY_API: dict[Api, tuple[str, ...]] = {
-    Api.OPENAI: ("miniswe", "openhands", "optimas", "openai"),
+    Api.OPENAI: ("miniswe", "optimas", "openai"),
     Api.ANTHROPIC: ("claude", "anthropic"),
 }
 

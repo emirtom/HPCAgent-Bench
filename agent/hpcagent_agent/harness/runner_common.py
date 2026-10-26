@@ -128,8 +128,6 @@ class RunnerArgs:
     max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS
     #: The setup's effort rung; "" means this model has no ladder and the field must not be sent.
     reasoning_effort: str = ""
-    #: The window the engine was started with; ``None`` for a client that was told none.
-    context_length: int | None = None
     #: The prompt size past which history is compacted; ``None`` for a runner that was told none.
     compaction_trigger: int | None = None
     #: Seconds one model request may take; ``None`` keeps the client's own default.
@@ -145,7 +143,7 @@ class RunnerArgs:
         return self.cwd or self.workdir
 
 
-def parse_args(argv: Sequence[str], *, with_mcp_config: bool, with_context_length: bool = False) -> RunnerArgs:
+def parse_args(argv: Sequence[str], *, with_mcp_config: bool) -> RunnerArgs:
     parser = argparse.ArgumentParser(description="Run one HPCAgent-Bench episode.")
     parser.add_argument("--workdir", required=True, type=pathlib.Path)
     parser.add_argument("--cwd", type=pathlib.Path, default=None, help="Where commands run; default the workdir.")
@@ -155,8 +153,6 @@ def parse_args(argv: Sequence[str], *, with_mcp_config: bool, with_context_lengt
     parser.add_argument("--usage", required=True, type=pathlib.Path)
     parser.add_argument("--max-output-tokens", type=int, default=DEFAULT_MAX_OUTPUT_TOKENS)
     parser.add_argument("--reasoning-effort", default="", help="Effort rung; omit for a model with no ladder.")
-    if with_context_length:
-        parser.add_argument("--context-length", type=int, default=0, help="The served context window.")
     parser.add_argument("--compaction-trigger", type=int, default=0, help="Prompt tokens that start compaction.")
     parser.add_argument("--request-timeout", type=int, default=0, help="Seconds one model request may take.")
     parser.add_argument("--resume-prompt", default="", help="Resume the crashed episode with this message.")
@@ -164,7 +160,6 @@ def parse_args(argv: Sequence[str], *, with_mcp_config: bool, with_context_lengt
         parser.add_argument("--mcp-config", required=True, type=pathlib.Path)
     namespace = parser.parse_args(list(argv))
     mcp_config: pathlib.Path | None = namespace.mcp_config.resolve() if with_mcp_config else None
-    served = int(namespace.context_length) if with_context_length else 0
     return RunnerArgs(
         workdir=pathlib.Path(namespace.workdir).resolve(),
         cwd=pathlib.Path(namespace.cwd).resolve() if namespace.cwd else None,
@@ -175,7 +170,6 @@ def parse_args(argv: Sequence[str], *, with_mcp_config: bool, with_context_lengt
         mcp_config=mcp_config,
         max_output_tokens=int(namespace.max_output_tokens),
         reasoning_effort=str(namespace.reasoning_effort).strip(),
-        context_length=served if served > 0 else None,
         compaction_trigger=int(namespace.compaction_trigger) if namespace.compaction_trigger > 0 else None,
         request_timeout=int(namespace.request_timeout) if namespace.request_timeout > 0 else None,
         resume_prompt=str(namespace.resume_prompt),

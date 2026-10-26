@@ -18,9 +18,8 @@ that genuinely wants its own dump.
 Three rules, because each one alone has been escaped:
 
 1. EVERY shell entry point carries the guard -- ``*.sbatch``, ``*.sh``, and any tracked file whose
-   shebang names a shell (``agent/bin/hpcagent-bench-tool`` and the OpenHands shell
-   ``bash-norc`` carry no suffix and sit closest to the compiler that crashes). A sourced library
-   counts too: setting the limit there is what carries the floor into the caller's shell.
+   shebang names a shell (``agent/bin/hpcagent-bench-tool`` carries no suffix and sits closest to the compiler
+   that crashes). A sourced library counts too: setting the limit there is what carries the floor into the caller's shell.
 2. No script RE-ENABLES them: "the text contains ``ulimit -c 0``" would accept a later
    ``ulimit -c unlimited`` that still dumps, so a non-zero ``ulimit -c`` needs
    a same-line ``# core-dumps-ok: <reason>`` marker, so a deliberate one (a probe that gdbs its own
@@ -65,9 +64,8 @@ ulimit -c 0
 SHELL_SUFFIXES = (".sbatch", ".sh")
 
 #: ...and a shebang naming a shell, for the entry points that carry no suffix at all. The agent's
-#: own `agent/bin/hpcagent-bench-tool` and the OpenHands shell `bash-norc` are both
-#: extensionless `#!/bin/sh` wrappers, so a suffix rule never sees the two scripts closest to the
-#: compiler that crashes.
+#: own `agent/bin/hpcagent-bench-tool` is an extensionless `#!/bin/sh` wrapper, so a suffix rule never sees
+#: the script closest to the compiler that crashes.
 SHELL_SHEBANG = re.compile(rb"^#!.*\b(?:ba|da|k|z|a)?sh\b")
 
 #: A real submission header always names the job; `#SBATCH` alone also matches prose about it.
