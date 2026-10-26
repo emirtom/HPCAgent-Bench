@@ -213,14 +213,3 @@ experiments/mwd-final-*/
 
 # Polygeist lowering artifacts a pluto build writes next to the reference
 *_pluto_input_polygeist_*
-
-# Hand-written DaCe overrides (no autogen marker): the program NestForge's nestmoves14 kernels were measured on.
-!hpcagent_bench/benchmarks/machine_learning/conv2d_bias_relu/conv2d_bias_relu_dace.py
-!hpcagent_bench/benchmarks/scientific_computing/dense_linear_algebra/scattering_self_energies_m2/scattering_self_energies_m2_dace.py
-!hpcagent_bench/benchmarks/scientific_computing/dense_linear_algebra/scattering_self_energies_m3/scattering_self_energies_m3_dace.py
-!hpcagent_bench/benchmarks/scientific_computing/dense_linear_algebra/seissol_volume/seissol_volume_dace.py
-!hpcagent_bench/benchmarks/scientific_computing/structured_grids/cloudsc_lateral_drift/cloudsc_lateral_drift_dace.py
-!hpcagent_bench/benchmarks/scientific_computing/structured_grids/cloudsc_nproma/cloudsc_nproma_dace.py
-!hpcagent_bench/benchmarks/scientific_computing/structured_grids/cloudsc_solver_carry/cloudsc_solver_carry_dace.py
-!hpcagent_bench/benchmarks/scientific_computing/structured_grids/conv3d_box/conv3d_box_dace.py
-!hpcagent_bench/benchmarks/scientific_computing/structured_grids/graupel_sedim2b/graupel_sedim2b_dace.py
