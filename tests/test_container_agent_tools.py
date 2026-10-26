@@ -529,7 +529,7 @@ def test_a_free_choice_submission_reaches_the_judge_in_the_language_it_named(
     refusal = free_choice_tools.score.run({"kernel": KERNEL, "source_file": "wrong_name.txt", "language": "fortran"})
     assert refusal["status"] == 400
     assert f"{KERNEL}.f90" in refusal["error"]
-    assert "fortran extension" in refusal["error"]
+    assert "extensions .F90 .f90" in refusal["error"]
 
 
 def test_the_free_choice_judge_would_have_refused_the_c_fallback_for_fortran_source(
