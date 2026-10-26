@@ -42,8 +42,10 @@ the shared folder `{{ shared_dir }}`. One half inline and the other a file is fi
   {{ device_language | upper }}. Send it inline as `device_source`, written to
   `{{ device_source_filename }}`, or as a file: `device_source_file` named `{{ device_source_file_name }}`.
 
-Sending only one half, or both `device_source` and `device_source_file`, is a 400. Declare anything the
-host half calls across the file boundary (a launcher wrapper, or the kernel itself) so the two
+You may instead send ONE unit holding both the entry point and the kernels, as `source` or as
+`source_file` (`{{ device_source_file_name }}` or `{{ source_file_names[0] }}`); it is then compiled as the
+device half. Both `device_source` and `device_source_file` together is a 400. With two halves, declare
+anything the host half calls across the file boundary (a launcher wrapper, or the kernel itself) so the two
 translation units link. Both are compiled by the {{ device_language | upper }} compiler and linked into
 `{{ lib_name }}` with exactly these commands. You do not choose the flags:
 {% else %}
