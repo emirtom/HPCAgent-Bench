@@ -42,6 +42,9 @@ machine_learning/conv2d_batch_norm_scaling:
 machine_learning/conv2d_bias:
   upstream: null
   note: not in the vendored KernelBench corpus; conv2d_torch.py is its torch reference
+machine_learning/conv2d_bias_relu:
+  upstream: null
+  note: not in the vendored KernelBench corpus; conv2d_bias_relu_torch.py is its torch reference
 machine_learning/conv2d_divide_leaky_relu:
   upstream: level2/71_Conv2d_Divide_LeakyReLU.py
 machine_learning/conv2d_gelu_global_avg_pool:
