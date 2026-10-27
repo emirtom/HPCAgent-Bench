@@ -2,8 +2,9 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Job script: grade a worklist under a grade protocol (PROTOCOL, default the credited one, mw4x5), one shard
-# per task (hpcagent-bench job grade-under; docs/jobs.md): each submission's inputs timed one at a time. A
-# shard resumes past the rows it already graded: submit the same call again with the SAME task count.
+# per task (hpcagent-bench job grade-under; docs/jobs.md): each submission's inputs timed one at a time. Every
+# shard claims the next unclaimed item of the shared worklist; a resubmit (any task count) grades what no earlier
+# job finished.
 #   [PROTOCOL=mw4x10] hpcagent-bench job submit --nodes <N> hpcagent_bench/cluster/grade-under.sbatch <worklist.jsonl> <out-dir> [aa]
 # `aa` is the A/A calibration of the protocol (the candidate's samples are a second timing of the chosen
 # baseline, rows stamped <protocol>-aa); give it, and every PROTOCOL, its own <out-dir>. On a container-engine site set JUDGE_EDF (the judge
@@ -43,7 +44,7 @@ python="${HPCAGENT_BENCH_PYTHON:-python3}"
 
 if [[ -z "${GANG_NODES:-}" ]]; then
     # One step per shard (job_step.sh's run_job_shards): a shard that dies (an out-of-memory submission) cancels no
-    # other, and a resubmit regrades only what is missing from each shard DB. A shard binds itself to its GPU slot
+    # other (its claim goes stale and another shard takes the item over). A shard binds itself to its GPU slot
     # and its cores.
     repo=${HPCAGENT_BENCH_REPO:-$(cd "${SLURM_SUBMIT_DIR}" && git rev-parse --show-toplevel)}
     . "${repo}/hpcagent_bench/cluster/job_step.sh"
