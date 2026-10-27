@@ -374,7 +374,7 @@ timeouts:
   kernel_s_override: null  # float s | null. When set, the timeout of every kernel.
   # Guillotine on the candidate's timed section: per-rep cap = max(guillotine_floor_s, guillotine_factor x the
   # candidate's measured baseline), s. A stopped candidate is graded on one complete run (canonical call and
-  # held-out cases) and, when correct, credited baseline / that run, at most 1 / guillotine_factor
+  # held-out cases) and, when correct, credited baseline / cap, at most 1 / guillotine_factor
   # (timing.reduce_stopped). guillotine_factor 0 = off. Held-out cases are exempt.
   guillotine_factor: 2     # float >= 0.
   guillotine_floor_s: 1    # float s.
