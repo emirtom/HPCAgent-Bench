@@ -165,6 +165,26 @@ The cluster launcher binds every plugin folder read-only into every role's conta
 tools and the judge the routes of the same plugins. `python -m hpcagent_bench.plugins roots` prints what a process
 finds.
 
+## Installing a plugin's package
+
+A plugin whose routes or optimizers import a package of its own (NestForge's `nestforge`, Alloy's `alloy`) says how
+that package is installed into the interpreter the judge and the optimizers run in:
+
+```toml
+[install]
+root = "../.."                                                    # the repository, relative to the plugin folder
+command = ["uv", "pip", "install", "--python", "{python}", "--no-deps", "{root}"]
+```
+
+`python -m hpcagent_bench.plugins install [--python PATH]` runs every plugin's command in a writable copy of its
+`root` (`{root}`; the cluster binds plugins read-only and a build writes into its tree), `{python}` being that
+interpreter (default: the running one). `--no-deps`: the benchmark's environment already holds what a plugin needs at
+the pins the benchmark owns, and a plugin's own pin of `hpcagent_bench` must not replace the judge's.
+
+On the cluster the launcher binds a plugin's `root` (not only its folder), and the judge image's entrypoint
+(`containers/images/lib/launch_venv.sh`) runs the install into the launch venv right after its `uv sync`; the plugins'
+sources are part of that venv's cache key, so a changed plugin gets a fresh venv.
+
 ## Community plugins
 
 The benchmark depends on DaCe and nothing else of these; each plugin lives in its own repository and registers

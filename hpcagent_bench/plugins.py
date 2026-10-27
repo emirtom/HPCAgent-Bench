@@ -6,12 +6,18 @@ its flavors (optimizers with no LLM, each run over shipped columns) join the fra
 agent-side folders plus installed packages
 under :data:`ENTRY_POINT_GROUP`; :func:`roots` is what a launcher exports to every role."""
 
+import argparse
 import functools
+import hashlib
 import importlib
 import importlib.metadata
 import os
 import pathlib
+import shlex
+import shutil
+import subprocess
 import sys
+import tempfile
 from collections.abc import Mapping
 
 import pydantic
@@ -26,6 +32,9 @@ __all__ = [
     "ENTRY_POINT_GROUP",
     "FlavorBlock",
     "entry_point_dirs",
+    "fingerprint",
+    "install",
+    "install_root",
     "load",
     "main",
     "packet_definition",
@@ -162,12 +171,78 @@ def page_path(page: str) -> pathlib.Path | None:
     return None
 
 
+#: What a plugin's install root is copied without: version control, environments and caches.
+NOT_INSTALLED = shutil.ignore_patterns(".git", ".venv", "__pycache__", "*.egg-info", "build", "dist")
+
+
+def install_root(plugin: Plugin) -> pathlib.Path | None:
+    """The folder ``plugin``'s install command builds from (its ``[install] root``), or None without one."""
+    block = plugin.manifest.install
+    return None if block is None else (plugin.root / block.root).resolve()
+
+
+def install(found: tuple[Plugin, ...], python: str = sys.executable) -> list[str]:
+    """Run every install command of ``found`` for interpreter ``python``; returns the plugins installed, by name.
+
+    Each command runs in a writable copy of its root (``{root}``), since the cluster binds plugins read-only and a
+    build writes into its source tree.
+
+    :raises RuntimeError: a command failed; the message names the plugin and carries its output.
+    """
+    installed: list[str] = []
+    for plugin in found:
+        root, block = install_root(plugin), plugin.manifest.install
+        if root is None or block is None:
+            continue
+        with tempfile.TemporaryDirectory(prefix=f"plugin-{plugin.name}-") as stage:
+            copy = pathlib.Path(stage) / root.name
+            shutil.copytree(root, copy, ignore=NOT_INSTALLED, symlinks=True)
+            argv = [arg.replace("{python}", python).replace("{root}", str(copy)) for arg in block.command]
+            done = subprocess.run(argv, cwd=copy, capture_output=True, text=True, check=False)
+        if done.returncode:
+            raise RuntimeError(f"plugin {plugin.name!r}: {shlex.join(argv)} failed:\n{done.stdout}{done.stderr}")
+        installed.append(plugin.name)
+    return installed
+
+
+def fingerprint(found: tuple[Plugin, ...]) -> str:
+    """A digest of every installed plugin's sources (path, size, modification time): a launch venv built for
+    another one is stale."""
+    digest = hashlib.sha256()
+    for plugin in found:
+        root = install_root(plugin)
+        if root is None:
+            continue
+        digest.update(f"{plugin.name}:{plugin.manifest.install}\n".encode())
+        for path in sorted(p for p in root.rglob("*") if p.is_file() and not set(p.relative_to(root).parts) & SKIPPED):
+            stat = path.stat()
+            digest.update(f"{path.relative_to(root)}:{stat.st_size}:{stat.st_mtime_ns}\n".encode())
+    return digest.hexdigest()[:16]
+
+
+#: Parts of a path the fingerprint skips (what :data:`NOT_INSTALLED` leaves out).
+SKIPPED = frozenset({".git", ".venv", "__pycache__", "build", "dist"})
+
+
 def main(argv: list[str]) -> int:
-    """``python -m hpcagent_bench.plugins roots``: the plugin directories, one per line, for a launcher to bind."""
-    if argv != ["roots"]:
-        print("usage: python -m hpcagent_bench.plugins roots", file=sys.stderr)
-        return 2
-    print("\n".join(str(root) for root in roots()))
+    """``python -m hpcagent_bench.plugins roots``: the plugin directories, one per line, for a launcher to bind.
+    ``... install [--python PATH]``: run every plugin's install command for this (or that) interpreter;
+    ``... fingerprint``: a digest of those plugins' sources (a launch venv's cache key)."""
+    parser = argparse.ArgumentParser(prog="python -m hpcagent_bench.plugins", description=main.__doc__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("roots", help="print the plugin directories, one per line")
+    installing = commands.add_parser("install", help="run every plugin's [install] command")
+    installing.add_argument("--python", default=sys.executable, help="the interpreter to install into")
+    commands.add_parser("fingerprint", help="print a digest of the installed plugins' sources")
+    args = parser.parse_args(argv)
+    if args.command == "roots":
+        print("\n".join(str(root) for root in roots()))
+        return 0
+    if args.command == "fingerprint":
+        print(fingerprint(agent_plugins.find(roots())))
+        return 0
+    for name in install(agent_plugins.find(roots()), args.python):
+        print(f"installed {name}")
     return 0
 
 
