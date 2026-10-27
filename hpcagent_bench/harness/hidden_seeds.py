@@ -8,15 +8,18 @@ is absent; a job mounts it, :mod:`hpcagent_bench.harness`). Deferring the import
 scoring and profiling importable where no seeds are mounted; a caller that actually needs a seed
 still gets ModuleNotFoundError, so no seed is ever invented.
 
-:func:`salted` and :func:`fresh_nonce` hold no secret and live here, importable everywhere.
+:func:`salted`, :func:`fresh_nonce` and :func:`pool_nonce` hold no secret and live here, importable everywhere.
 """
 
 import hashlib
 import os
+import secrets
 
 __all__ = [
     "SALTED_SEED_BITS",
+    "SUBMIT_POOL",
     "fresh_nonce",
+    "pool_nonce",
     "public_seeds_refusal",
     "salted",
     "secret_seed_first",
@@ -59,6 +62,16 @@ def public_seeds_refusal() -> str | None:
 def fresh_nonce() -> int:
     """A per-call nonce from the OS: 63 bits (a signed SQLite INTEGER), never 0."""
     return (int.from_bytes(os.urandom(8), "little") >> 1) or 1
+
+
+#: Secret draws a recorded grade picks from, per kernel: a submit's sizes, values and held-out cases repeat across
+#: submits, so their reference outputs and baseline timings are computed once and served from the cache.
+SUBMIT_POOL = 8
+
+
+def pool_nonce() -> int:
+    """A recorded grade's nonce: one of ``1..SUBMIT_POOL``, drawn per call."""
+    return 1 + secrets.randbelow(SUBMIT_POOL)
 
 
 def salted(seed: int, nonce: int) -> int:

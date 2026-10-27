@@ -12,7 +12,13 @@ from hpcagent_bench import config, fuzz
 from hpcagent_bench.categories import Language, Preset, SourceMode
 from hpcagent_bench.harness import hidden_tests, native_call, recording, scoring
 from hpcagent_bench.harness.envelope import Submission
-from hpcagent_bench.harness.hidden_seeds import salted, secret_seed_first, secret_seed_harden, secret_seed_second
+from hpcagent_bench.harness.hidden_seeds import (
+    SUBMIT_POOL,
+    salted,
+    secret_seed_first,
+    secret_seed_harden,
+    secret_seed_second,
+)
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
 from tests.results_rows import submissions
@@ -35,10 +41,9 @@ def captured_nonces(monkeypatch: pytest.MonkeyPatch, **kwargs: object) -> tuple[
     return seen, results
 
 
-def test_two_submits_grade_under_different_nonces(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_submit_grades_under_a_nonce_of_the_secret_pool(monkeypatch: pytest.MonkeyPatch) -> None:
     seen, results = captured_nonces(monkeypatch, hidden=True)
-    assert seen[0] != seen[1]
-    assert 0 not in seen
+    assert all(1 <= nonce <= SUBMIT_POOL for nonce in seen)
     assert [result.seed_nonce for result in results] == seen
 
 
