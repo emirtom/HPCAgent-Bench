@@ -10,7 +10,7 @@ conv2d_add_scale_sigmoid_group_norm): stride 1, no dilation, one group, input al
 import numpy as np
 
 
-def conv2d_bias_relu(x, wt, b, out, N, CI, CO, H, W, KH, KW):
+def conv2d_bias_relu(x, wt, b, out, N, CO, H, W, KH, KW):
     # array shapes (numpy->dace): x=(N,CI,H+KH-1,W+KW-1), wt=(CO,CI,KH,KW), b=(CO,), out=(N,CO,H,W)
     acc = np.zeros((N, CO, H, W))
     acc += b[None, :, None, None]
