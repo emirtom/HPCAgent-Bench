@@ -548,7 +548,7 @@ class TimedCell:
     correct: bool = True
     suspect: bool = False  # implausible ratio at THIS cell (flagged, not failed)
     significant: bool = True  # the gate credited the measured ratio rather than flooring it to 1.0
-    #: The guillotine stopped the candidate: ``native_ns`` is the cap and ``ratio`` an upper bound; no p-value.
+    #: The guillotine stopped the candidate: ``native_ns`` is its one full run (at least the cap); no p-value.
     stopped: bool = False
     baseline: str = ""
     timing_reduction: str | None = None
@@ -2297,7 +2297,7 @@ def graded_score(
         canonical_followups = (
             [Followup(build=candidate_builder(task.kernel, choice, canonical))] if canonical is not None else []
         )
-        # A guillotine-stopped run is still graded once, and the cell is credited baseline / cap (an upper bound).
+        # A guillotine-stopped run is still graded once, run to its end, and the cell is credited baseline / that run.
         cap_s = guillotine_seconds(baseline_ns, timeout)
         stopped_ns = 0
         run_warmup = warmup
@@ -2370,8 +2370,9 @@ def graded_score(
                     repeat, warmup, cap_s
                 )
             except NativeCallTooSlow:
-                stopped_ns, run_warmup = round(cap_s * 1e9), 0
+                run_warmup = 0
                 (actual, native_samples, call_probes, all_outputs, timed_outputs), checks = public_run(1, 0, 0.0)
+                stopped_ns = max(round(cap_s * 1e9), round(min(native_samples, default=0)))
             if canonical_followups:
                 actual, all_outputs = all_outputs[0], all_outputs[1:]
             if aa:  # A/A: graded above, its TIMES are the baseline's again
@@ -2489,7 +2490,10 @@ def graded_score(
             reduced = timing.reduce_stopped(stopped_ns, primary_samples, backend=backend, varied=rep_data is not None)
             detail = "; ".join(
                 bit
-                for bit in (detail, f"stopped at the guillotine ({stopped_ns / 1e9:.3g}s a run): credited baseline/cap")
+                for bit in (
+                    detail,
+                    f"stopped at the guillotine ({cap_s:.3g}s a run; one full run took {stopped_ns / 1e9:.3g}s): credited baseline/that run",
+                )
                 if bit
             )
         else:
