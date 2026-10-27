@@ -1268,7 +1268,7 @@ def budget_text(max_output_tokens: int) -> str:
     return (
         f"You may generate up to {max_output_tokens:,} output tokens: your replies and your reasoning. Reading "
         f"files, tool results and the context you carry are not counted. {told} That budget is far more than a "
-        "thorough optimization needs, so never stop because you think it is running low: keep optimizing."
+        "thorough optimization needs, so you do not need to use all of it."
     )
 
 
