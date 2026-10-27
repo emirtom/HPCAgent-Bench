@@ -83,6 +83,8 @@ def test_a_slot_child_binds_its_memory_to_its_cores_node(
     timed remote memory."""
     monkeypatch.setenv("HPCAGENT_BENCH_JUDGE_GPUS_PER_NODE", "0")
     monkeypatch.setenv("HPCAGENT_BENCH_JUDGE_CPU_SLOTS_PER_NODE", "2")
+    # A worker that mapped a GPU runtime forks from a forkserver started before this env: fork this process.
+    monkeypatch.setattr(native_call, "mapped_device_runtimes", lambda exclude=(): ())
     nodes = native_call.numa_nodes(native_call.grading_cpus(1))
     if not nodes:
         pytest.skip("no readable NUMA topology")

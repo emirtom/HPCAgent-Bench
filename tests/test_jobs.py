@@ -3,6 +3,7 @@
 """``hpcagent-bench job <name>``: the tasks of one Slurm step split a helper job's work by ``SLURM_PROCID`` /
 ``SLURM_NTASKS`` (rank 0 of 1 outside Slurm), and each action hands its share to the module that owns the work."""
 
+import collections.abc
 import os
 import pathlib
 import resource
@@ -16,6 +17,15 @@ from hpcagent_bench.cluster import jobs
 from hpcagent_bench.harness import grade_under, prepare
 
 REPO = paths.ROOT
+
+
+@pytest.fixture(autouse=True)
+def restored_environ() -> collections.abc.Iterator[None]:
+    """``jobs.main`` exports its task's env into ``os.environ``; later tests on this worker must not read it."""
+    saved = dict(os.environ)
+    yield
+    os.environ.clear()
+    os.environ.update(saved)
 
 
 @pytest.fixture(autouse=True)
