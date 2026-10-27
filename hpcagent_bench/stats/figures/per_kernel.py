@@ -963,7 +963,8 @@ def fit_canvas(
     fig.set_size_inches(width, height)
     fig.subplots_adjust(top=1.0 - top / height, bottom=bottom / height, hspace=gap / panel_height_in)
     if title:
-        plotstyle.title(fig, title)
+        # The figure's own type scale: a print-size save refuses a title past it.
+        plotstyle.title(fig, title, type_.title_pt)
 
 
 def run_cells(runs: pd.DataFrame, kernels: Sequence[str]) -> tuple[KernelCell, ...]:

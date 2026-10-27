@@ -292,15 +292,15 @@ TITLE_GAP_IN: float = 0.30
 TITLE_BAND_IN: float = TITLE_TOP_IN + TITLE_GAP_IN
 
 
-def title(fig: Figure, text: str) -> float:
-    """Centred title; returns the top of the plot area for ``tight_layout(rect=...)``."""
+def title(fig: Figure, text: str, size_pt: float = TITLE_PT) -> float:
+    """Centred title at ``size_pt``; returns the top of the plot area for ``tight_layout(rect=...)``."""
     width, height = (float(value) for value in fig.get_size_inches())
     # Work in inches, then convert: a figure fraction is a different gap at every figure height.
     top = 1.0 - (TITLE_TOP_IN / height)
-    artist = fig.text(0.5, top, text, fontsize=TITLE_PT, color=INK, ha="center", va="top")  # pyright: ignore[reportUnknownMemberType]
+    artist = fig.text(0.5, top, text, fontsize=size_pt, color=INK, ha="center", va="top")  # pyright: ignore[reportUnknownMemberType]
     # A title wider than the canvas is clipped at both ends: shrink it to fit.
-    size = TITLE_PT
-    while size > MIN_TITLE_PT:
+    size = size_pt
+    while size > min(MIN_TITLE_PT, size_pt):
         box = artist.get_window_extent(renderer_of(fig)).transformed(fig.dpi_scale_trans.inverted())
         if box.width <= width:
             break
