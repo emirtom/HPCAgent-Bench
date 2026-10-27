@@ -96,7 +96,8 @@ from hpcagent_bench.harness.grading import (
     was_cut,
 )
 from hpcagent_bench.harness.hidden_seeds import (
-    fresh_nonce,
+    SUBMIT_POOL,
+    pool_nonce,
     salted,
     secret_seed_first,
     secret_seed_harden,
@@ -1496,7 +1497,7 @@ def score(
     Only the recorded route (``hidden``) salts its seeds; ``datatype`` yields to the kernel's own where it has one."""
     datatype = graded_datatype(BenchSpec.load(task.kernel), datatype)
     salt = hidden and task.residency is not Residency.DISTRIBUTED
-    nonce = (seed_nonce if seed_nonce is not None else fresh_nonce()) if salt else 0
+    nonce = (seed_nonce if seed_nonce is not None else pool_nonce()) if salt else 0
     with native_call.rep_draw_scope():
         result = graded_score(
             submission,
@@ -1667,9 +1668,9 @@ def graded_score(
     public_seed = salted(secret_seed_second(), nonce) if hidden else secret_seed_first()
     # Inputs are drawn from ALL scenarios; one that does not list the requested layout fails the kernel.
     skipped = uncovered(spec, choice, initializer_seed(preset, public_seed, fuzz_iteration))
-    # The disk store, only for inputs a later call can draw again (salted seeds never repeat).
+    # The disk store, only for inputs a later call can draw again: the unsalted route and the submit pool.
     disk_scope = disk_cache.in_scope(spec)
-    fixed_route = nonce == 0
+    fixed_route = nonce <= SUBMIT_POOL
     disk = disk_scope and fixed_route
     # The draw's time is every per-rep draw's allowance (native_call.REP_DRAW_S).
     draw_start = time.monotonic()
@@ -2203,8 +2204,8 @@ def graded_score(
         # An empty sample list (attempted, no denominator) is cached too, so a hopeless candidate is not retried.
         if baselines and cached is None and not lost_compiled:
             remember_baseline_timing(bl_key, (dict(baselines), {k: list(v) for k, v in baseline_samples.items()}))
-            # A cut is a lower bound, never kept across jobs.
-            if disk_timing and not any(was_cut(baseline_samples, kind) for kind in kinds):
+            # A cut only bounds a candidate slower than the leader, whose time is the denominator either way.
+            if disk_timing:
                 disk_cache.store_timing(
                     disk_cache.harness_key(spec), bl_key, timing_names(BASELINE_TIMING_CACHE[bl_key])
                 )

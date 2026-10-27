@@ -51,6 +51,7 @@ def test_the_shipped_default_serves_no_kernel() -> None:
 
 def test_scope_follows_the_manifest_level(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HPCAGENT_BENCH_CACHE_DISK_RESULTS_LEVELS", "[3]")
+    monkeypatch.setenv("HPCAGENT_BENCH_CACHE_DISK_RESULTS_TRACKS", "[]")
     monkeypatch.setenv(disk_cache.COMMIT_ENV, "abc1234")
     assert disk_cache.in_scope(BenchSpec.load("xsbench"))  # level 3
     assert not disk_cache.in_scope(BenchSpec.load("fft_1d"))  # level 2
@@ -309,10 +310,11 @@ def test_a_second_process_grades_from_the_stored_reference_and_timing(tmp_path: 
 @pytest.mark.integration
 def test_every_runs_expected_outputs_and_one_timing_are_stored_for_both_routes(tmp_path: pathlib.Path) -> None:
     """Every timed run is graded against its own pool input, whose expected outputs are stored: /score's
-    public input and its 4 pool inputs, and /submit's 4 (its public input is salted per call, so never
-    stored); a later /score runs no reference at all. The baseline timing is keyed on the redraw rule and
-    the structural inputs, so the first grade's timing serves every later /score and /submit of the cell."""
-    env = {"HPCAGENT_BENCH_CACHE_DISK_RESULTS_LEVELS": "[2]"}
+    public input and its pool inputs, and /submit's, whose public input is one of the secret pool's (each of the
+    two submits draws one); a later /score runs no reference at all. The baseline timing is keyed on the redraw
+    rule and the structural inputs, so the first grade's timing serves every later /score and /submit of the
+    cell."""
+    env = {"HPCAGENT_BENCH_CACHE_DISK_RESULTS_LEVELS": "[2]", "HPCAGENT_BENCH_CACHE_DISK_RESULTS_TRACKS": "[]"}
     for forbid, route in [
         ("nothing", "score"),
         ("timing", "submit"),
@@ -322,14 +324,17 @@ def test_every_runs_expected_outputs_and_one_timing_are_stored_for_both_routes(t
     ]:
         run = grade_in_fresh_process(tmp_path, forbid, route, **env)
         assert run.returncode == 0, (forbid, route, run.stderr[-3000:])
-    assert len(list((tmp_path / "outputs").iterdir())) == 1 + 2 * rep_variation.POOL_SIZE
+    stored = len(list((tmp_path / "outputs").iterdir()))
+    assert 2 + 2 * rep_variation.POOL_SIZE <= stored <= 3 + 2 * rep_variation.POOL_SIZE
     assert len(list((tmp_path / "timing").iterdir())) == 1
     assert len(list((tmp_path / "probe").iterdir())) == 1
 
 
 @pytest.mark.integration
 def test_the_flag_off_writes_nothing_and_reads_nothing(tmp_path: pathlib.Path) -> None:
-    first = grade_in_fresh_process(tmp_path, "nothing", HPCAGENT_BENCH_MEASUREMENT_VARY_INPUTS="0")
+    first = grade_in_fresh_process(
+        tmp_path, "nothing", HPCAGENT_BENCH_MEASUREMENT_VARY_INPUTS="0", HPCAGENT_BENCH_CACHE_DISK_RESULTS_TRACKS="[]"
+    )
     assert first.returncode == 0, first.stderr[-3000:]
     assert sorted(p.name for p in tmp_path.iterdir()) == ["score.py"]
 
