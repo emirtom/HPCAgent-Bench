@@ -1560,7 +1560,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"shard {args.shard}/{args.shards}: scaling-graded {swept} of {len(sweeps)} submissions")
         return 0
-    if os.environ.get("ROCR_VISIBLE_DEVICES"):
+    # A one-device task grades on its device; a slot worker (jobs.run_slots) keeps the slot it was given.
+    if os.environ.get("ROCR_VISIBLE_DEVICES") and native_call.assigned_device() is None:
         native_call.set_assigned_device(0)
     plain = [item for item in items if item.scaling is None]
     promotions = [item for item in plain if item.promoted]

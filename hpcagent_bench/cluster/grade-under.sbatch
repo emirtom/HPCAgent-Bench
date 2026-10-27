@@ -21,9 +21,10 @@
 # NO_RECORD=1 (laws without their points), NO_TORCH_DIST=1 (skip the torch.distributed baseline curve),
 # TORCH_CACHE_ROOT (<out>/torch-cache).
 #
-# The header pins no node shape: `hpcagent-bench job submit` passes the system's (one task per GPU with its share of
-# the cores), partition and account, and `srun` inherits it. Plain sbatch names them itself
-# (`--ntasks-per-node=4 --cpus-per-task=24 --gpus-per-node=4 -p mi300 -A A` on Beverin).
+# The header pins no node shape: `hpcagent-bench job submit` passes the system's (one task per node with every GPU
+# and core; the task runs one worker per NUMA domain, jobs.run_slots), partition and account, and `srun` inherits it.
+# Plain sbatch names them itself
+# (`--ntasks-per-node=1 --cpus-per-task=96 --gpus-per-node=4 -p mi300 -A A` on Beverin).
 #SBATCH --job-name=grade-under
 #SBATCH --hint=nomultithread
 #SBATCH --mem=0

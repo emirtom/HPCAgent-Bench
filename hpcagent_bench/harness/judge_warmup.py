@@ -44,21 +44,22 @@ SHARDS_KEY = "service.warm_shards"
 @dataclasses.dataclass(frozen=True, slots=True)
 class Cell:
     """One unit of the warm-up: a kernel's torch cell (``params`` ``None`` = the grade route's own draw), or with
-    ``kind`` ``None`` its ``/score`` grade (:func:`prepare.grade_reference`)."""
+    ``kind`` ``None`` its ``protocol`` grade (``score`` / ``submit``, :func:`prepare.grade_reference`)."""
 
     kernel: str
     kind: Baseline | None
     params: Mapping[str, object] | None
+    protocol: str = "score"
 
 
 def score_cells(problems: pathlib.Path) -> list[Cell]:
-    """One ``/score`` warm cell per non-ML kernel of the tag, sorted."""
+    """Every non-ML kernel of the tag graded as ``/score`` grades it, then all of them as ``/submit`` does (agents
+    score first): every baseline and golden a run reads, in the order it reads them."""
     from hpcagent_bench.spec import BenchSpec  # deferred: spec loads the manifests
 
     kernels = sorted({problem.kernel for problem in problem_file.read_lines(problems)})
-    return [
-        Cell(kernel, None, None) for kernel in kernels if BenchSpec.load(kernel).track is not Track.MACHINE_LEARNING
-    ]
+    graded = [kernel for kernel in kernels if BenchSpec.load(kernel).track is not Track.MACHINE_LEARNING]
+    return [Cell(kernel, None, None, protocol) for protocol in ("score", "submit") for kernel in graded]
 
 
 def tag_cells(problems: pathlib.Path, language: str) -> list[Cell]:
@@ -131,7 +132,7 @@ class Warmer:
         try:
             if cell.kind is None:
                 plan = prepare.Plan(self.language, self.preset, self.datatype, None)
-                prepare.grade_reference(cell.kernel, plan)
+                prepare.grade_reference(cell.kernel, plan, (cell.protocol,))
                 return
             reason = torch_baseline.warm_cell(cell.kernel, cell.kind, self.preset, self.datatype, cell.params)
         finally:
@@ -174,7 +175,7 @@ def start_from_config(
     warmer.start(workers)
     scored = sum(cell.kind is None for cell in cells)
     print(
-        f"warmup: {scored} /score cells and {len(cells) - scored} torch cells of {problems} "
+        f"warmup: {scored} /score and /submit cells and {len(cells) - scored} torch cells of {problems} "
         f"(shard {rank % shards}/{shards})",
         file=sys.stderr,
         flush=True,
