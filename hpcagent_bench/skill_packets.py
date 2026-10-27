@@ -23,6 +23,8 @@ def page_packet(key: str, block: PacketBlock) -> PacketDef:
         skills=(key,),
         packets=block.packets,
         env=tuple(block.env.items()),
+        prompt_sections=tuple(sorted(block.prompt.sections.items())),
+        template_dirs=block.prompt.template_dirs,
         method=block.method,
         tools=block.tools,
         device=block.device,

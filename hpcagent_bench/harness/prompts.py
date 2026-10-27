@@ -331,10 +331,11 @@ class PromptConfig:
         if unknown:
             raise TypeError(f"unknown prompt config field(s): {', '.join(sorted(unknown))}")
         configured = config.current().prompt
+        packet_sections, packet_dirs = packets.prompt_overrides(config.current().record.packet)
         return cls(
             template=pick_str(given, "template", configured.template),
             template_dir=pick_path(given, "template_dir", configured.template_dir),
-            template_dirs=pick_dirs(given, "template_dirs", configured.template_dirs),
+            template_dirs=(*pick_dirs(given, "template_dirs", configured.template_dirs), *packet_dirs),
             generator=pick_path(given, "generator", configured.generator),
             debug=pick_bool(given, "debug", configured.debug),
             inline_kernel=pick_bool(given, "inline_kernel", configured.inline_kernel),
@@ -346,7 +347,9 @@ class PromptConfig:
             profiling_guidance=pick_bool(given, "profiling_guidance", configured.profiling_guidance),
             language_track=pick_bool(given, "language_track", configured.language_track),
             native=pick_bool(given, "native", configured.native),
-            sections=prompt_sections.pick_sections(cast("SectionOverrides | None", given.get("sections"))),
+            sections=prompt_sections.pick_sections(
+                cast("SectionOverrides | None", given.get("sections")), packet_sections
+            ),
         )
 
     def aliases(self) -> dict[str, str | None]:

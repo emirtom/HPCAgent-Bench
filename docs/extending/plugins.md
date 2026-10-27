@@ -43,6 +43,22 @@ A packet's fields are those of [packets.md](packets.md). A plugin's packets take
 loaded. Names are one namespace: a packet, page or tool another plugin (or the repository) already registered is
 refused.
 
+### A packet's prompt
+
+A packet can change the prompt of the setups that run it, the same two ways a user can
+([prompts.md](../prompts.md#overriding)): turn sections off or replace them, and add template roots whose files
+shadow the built-in ones by path.
+
+```toml
+[packets.my_packet.prompt]
+sections = { build_flags = false, timing = "house/timing.j2" }   # off, or a template on the search path / a file
+template_dirs = ["prompts"]                                       # relative to the plugin folder
+```
+
+The packet's roots are searched after the user's own `prompt.template_dir(s)` and before the built-in `prompts/`,
+and its sections sit below the user's `prompt.sections` and `HPCAGENT_BENCH_PROMPT_SECTIONS_<KEY>`, so the user
+still has the last word. Two packets of one spec that set one section differently are refused.
+
 ## Agent tools
 
 A tool is a `@tool` module, as in [skills-and-tools.md](skills-and-tools.md), with `core=False`: it is served only to
@@ -148,6 +164,17 @@ The cluster launcher binds every plugin folder read-only into every role's conta
 `/opt/hpcagent-bench-plugins/<folder>` and exports the list as `HPCAGENT_BENCH_PLUGIN_DIRS`, so the agent serves the
 tools and the judge the routes of the same plugins. `python -m hpcagent_bench.plugins roots` prints what a process
 finds.
+
+## Community plugins
+
+The benchmark depends on DaCe and nothing else of these; each plugin lives in its own repository and registers
+through the `hpcagent_bench.plugins` entry point (or a folder in `HPCAGENT_BENCH_USER_PLUGIN_DIRS`). A plugin pins
+the benchmark's DaCe commit, which the benchmark owns.
+
+| Plugin | Adds |
+|---|---|
+| [Alloy](https://github.com/ThrudPrimrose/alloy) | optimizer flavors over the DaCe columns (`<column>_alloy_profile`); DaCe's build plugin through `pip install "dace[alloy]"` |
+| [NestForge](https://github.com/spcl/NestForge) | the `nestforge` packet: an agent applies legal loop-nest moves, the rest runs on defaults |
 
 ## Example: NestForge
 

@@ -74,11 +74,13 @@ def parse_value(raw: object) -> SectionValue | None:
     return text
 
 
-def pick_sections(given: Mapping[str, SectionValue] | None = None) -> tuple[tuple[str, SectionValue], ...]:
+def pick_sections(
+    given: Mapping[str, SectionValue] | None = None, packet: Mapping[str, SectionValue] | None = None
+) -> tuple[tuple[str, SectionValue], ...]:
     """Every non-built-in section as sorted ``(key, value)`` pairs: ``given`` over the environment over
-    ``prompt.sections``; an unknown key is an error listing the known ones."""
+    ``prompt.sections`` over the setup's ``packet``; an unknown key is an error listing the known ones."""
     known = section_templates()
-    block = config.current().prompt.sections
+    block = {**(packet or {}), **config.current().prompt.sections}
     chosen: dict[str, SectionValue] = {}
     names: set[str] = {*known, *block, *(given or {})}
     for name in sorted(names):

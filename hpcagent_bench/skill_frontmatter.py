@@ -29,6 +29,17 @@ class Applies(pydantic.BaseModel):
     explicit: pydantic.StrictBool = False
 
 
+class PacketPrompt(pydantic.BaseModel):
+    """A packet's ``prompt`` block: what its setups' prompts change. ``sections`` turns sections off or replaces them
+    (``docs/prompts.md``); ``template_dirs`` are template roots searched after the user's own, before the built-in
+    ``prompts/`` (a plugin manifest's relative to the plugin folder). The user's ``prompt.*`` keys still win."""
+
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    sections: dict[str, str | bool] = pydantic.Field(default_factory=dict)
+    template_dirs: tuple[str, ...] = ()
+
+
 class PacketBlock(pydantic.BaseModel):
     """A page's ``packet:`` frontmatter block: the page registers itself as the packet of its directory's name
     (:mod:`hpcagent_bench.skill_packets`), staging the page plus what the block adds. The fields are the packet
@@ -44,6 +55,7 @@ class PacketBlock(pydantic.BaseModel):
     tools: tuple[str, ...] = ()
     agents: tuple[str, ...] = ()
     env: dict[str, str] = pydantic.Field(default_factory=dict)
+    prompt: PacketPrompt = PacketPrompt()
     method: str = ""
     device: PacketDevice | None = None
     frozen: str = ""
