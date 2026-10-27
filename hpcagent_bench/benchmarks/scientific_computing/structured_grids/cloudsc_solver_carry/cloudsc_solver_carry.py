@@ -9,8 +9,6 @@ and positive for the other four species, so the flux carry is live. Outputs star
 the cloud top stays zero.
 """
 
-from typing import Optional
-
 import numpy as np
 from numpy.random import Generator, default_rng
 
@@ -25,7 +23,7 @@ def initialize(
     ncldtop: int,
     nclv: int,
     datatype: type = np.float64,
-    rng: Optional[Generator] = None,
+    rng: Generator | None = None,
 ):
     if nclv != NCLV:
         raise ValueError(f"cloudsc_solver_carry is unrolled for nclv={NCLV}, got {nclv}")

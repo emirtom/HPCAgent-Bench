@@ -6,13 +6,11 @@ Every column takes all ``NSUB`` substeps (the uniform case of the 2026-10-22 tim
 Species 0 has no species above it (``w[0] = 0``). Mixing ratios and fall coefficients keep every flux finite.
 """
 
-from typing import Optional
-
 import numpy as np
 from numpy.random import default_rng
 
 
-def initialize(NSPEC, NLEV, KLON, NSUB, datatype=np.float64, rng: Optional[np.random.Generator] = None):
+def initialize(NSPEC, NLEV, KLON, NSUB, datatype=np.float64, rng: np.random.Generator | None = None):
     if rng is None:
         rng = default_rng(7)
     q = rng.uniform(0.0, 1e-3, size=(NSPEC, NLEV, KLON)).astype(datatype)

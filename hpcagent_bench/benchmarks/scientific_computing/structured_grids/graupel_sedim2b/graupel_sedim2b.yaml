@@ -1,10 +1,6 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
 # provenance: {kind: original}
-# Synthetic sedimentation in the style of ICON's and CLOUDSC's microphysics: per-column substeps, a species
-# loop and a level loop, with a flux handed from each species to the next. NSPEC and NSUB are fixed small
-# counts; KLON at M is not a multiple of a block size. Inputs: initialize() in graupel_sedim2b.py.
 name: Graupel Substep Sedimentation
-short-name: Graupel Sedim
 level: 2
 parameters:
   S:
@@ -27,14 +23,6 @@ parameters:
     NLEV: 137
     KLON: 131075
     NSUB: 8
-public:
-  scales:
-    NSPEC:
-      scale: small
-      description: "the number of precipitation species, a fixed small count"
-    NSUB:
-      scale: small
-      description: "the number of sedimentation substeps, a fixed small count"
 args:
   q: {shape: "(NSPEC, NLEV, KLON)", out: true}
   c: "(NSPEC, NLEV, KLON)"

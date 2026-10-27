@@ -1,8 +1,5 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
 # provenance: {kind: derived, upstream: kernelbench, detail: 'the conv2d_* family: stride 1, one group, pre-padded input'}
-# One convolution layer with bias and ReLU: stride 1, no dilation, one group, input already padded. KH and KW
-# are fixed small counts; H and W at M are not multiples of a block size. Inputs: initialize() in
-# conv2d_bias_relu.py.
 name: Conv2d Bias ReLU
 level: 2
 parameters:
