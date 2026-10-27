@@ -9,6 +9,9 @@ Pins: dace extended `64248c929`.
 ### Breaking
 The OpenHands harness is removed; `mcp>=2.3` is required.
 
+### Added
+Kernels `cloudsc_solver_carry`, `graupel_sedim2b` (scientific computing) and `conv2d_bias_relu` (machine learning).
+
 ### Fixed
 - Submission contract: a GPU language takes one unit, and a sole source file need not carry the kernel's name.
 - numpyto_c: a deferred buffer bound in sibling branches is allocated in each (warpx reference SIGSEGV).
