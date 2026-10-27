@@ -21,7 +21,7 @@ submitted earns nothing, however well it scored. There is no cap on `score` call
 submitting the best version you measured, and if a later experiment scored worse, submit the earlier
 one again before you stop.
 @@section grading@@
-`score` and `submit` grade DIFFERENT inputs. `score` runs {{SCORE_INPUTS}} inputs, the same sizes and values on
+`score` and `submit` grade DIFFERENT inputs. `score` runs on {{SCORE_INPUTS}} input(s), the same sizes and values on
 every call, drawn from a seed of its own. It times your code and the baseline {{SCORE_REPEAT}} times each on
 every input after a warmup and scores each input as `submit` does. It is a preview for steering and is never
 recorded. `submit` is the grade itself. It times {{FINAL_INPUTS}} other inputs, none of them the ones `score`

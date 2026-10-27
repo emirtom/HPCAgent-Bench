@@ -108,7 +108,7 @@ measurement:
                            #   /submit, /score and grade-under use their protocol's run count
                            #   (grade_under.final_settings).
   local_repeat: 5          # int >= 1. Timed reps of the /score of a distributed (MPI / ML-scaling) task, reduced
-                           #   by median_of_k. A single-node /score uses the preview protocol mw2x5; /baseline
+                           #   by median_of_k. A single-node /score uses the preview protocol mw1x5; /baseline
                            #   uses `repeat`.
   warmup: 1                # int >= 0. Untimed reps run and discarded before the timed reps, on the submission
                            #   and every baseline; timed cells only. 0 = none.
@@ -127,7 +127,7 @@ measurement:
                            #   hpcagent_bench/protocols.py). Protocol /submit grades under and every credited
                            #   number is stated under; fixes inputs x runs per side and alpha. Rows under another
                            #   stamp are not credited, pooled or plotted (timing.credited_protocol). A change
-                           #   requires a regrade (grade-under worklist/run --protocol). /score uses mw2x5.
+                           #   requires a regrade (grade-under worklist/run --protocol). /score uses mw1x5.
   quiescence:              # GPU grades only; inert on a host grade. A trip sets `suspect` and credits 1.0; the
                            #   readings are stored on the row. 0 = that gate off. Each value is 2 x the worst
                            #   honest reading of the calibration in docs/measurement_statistics.md; recalibrate
