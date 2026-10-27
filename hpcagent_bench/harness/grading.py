@@ -1002,8 +1002,9 @@ def early_stop_seconds(samples: Samples, kinds: Sequence[Baseline], timeout: flo
     return budget if budget < timeout else 0.0
 
 
-#: Re-runs of a compiled reference an early-stop cut killed (one rep over the cut can be contention).
-CUT_RETRIES: int = 1
+#: Re-runs of a compiled reference an early-stop cut killed: none. The cut already allows early_stop_factor x the
+#: leader's slowest rep, and slots are NUMA-local, so a cut means slower, and a retry only doubled a loser's cost.
+CUT_RETRIES: int = 0
 
 
 def cut_retried[T](run: Callable[[], T], cut_s: float) -> T:
