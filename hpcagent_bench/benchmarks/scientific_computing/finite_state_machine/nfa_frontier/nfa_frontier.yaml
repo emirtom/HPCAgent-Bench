@@ -44,7 +44,7 @@ parameters:
     NS: {derive: "33 * C"}
     NE: {derive: "55 * C"}
     NSTART: {derive: "C"}
-    T: [6471602, 12943204]
+    T: [5695010, 11390020]
 args:
   comp_ptr: {shape: "(C + 1,)", dtype: int64}
   row_ptr: {shape: "(NS + 1,)", dtype: int64}
