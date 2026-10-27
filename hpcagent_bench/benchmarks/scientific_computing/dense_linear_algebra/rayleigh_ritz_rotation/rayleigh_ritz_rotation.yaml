@@ -14,7 +14,7 @@ parameters:
     ngrid: 647634
     k: 170
   XL:
-    ngrid: 1600000
+    ngrid: 1400000
     k: 300
   fuzzed:
     ngrid: [2048, 1600000]

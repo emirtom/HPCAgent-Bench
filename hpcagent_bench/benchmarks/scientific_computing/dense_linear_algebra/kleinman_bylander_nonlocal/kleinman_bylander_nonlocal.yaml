@@ -17,7 +17,7 @@ parameters:
     nproj: 457
     nstate: 228
   XL:
-    ngrid: 958794
+    ngrid: 843000
     nproj: 815
     nstate: 406
   fuzzed:
