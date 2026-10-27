@@ -28,7 +28,7 @@ parameters:
   XL:
     NX: 128
     NY: 128
-    NZ: 128
+    NZ: 112
   # A drawn edge that is not divisible by 8 makes initialize() raise and fails the whole fuzz cell,
   # so each edge is constructed as 8*e rather than drawn from a continuous interval.
   fuzzed:

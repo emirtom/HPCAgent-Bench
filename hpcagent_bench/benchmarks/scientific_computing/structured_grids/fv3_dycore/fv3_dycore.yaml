@@ -56,8 +56,8 @@ parameters:
     nk: 24
     nsteps: 20
   XL:
-    ni: 2018
-    nj: 2018
+    ni: 1900
+    nj: 1900
     nk: 28
     nsteps: 20
 # Discrete algorithm options of the composed transport operator:

@@ -17,8 +17,8 @@ parameters:
     NV: 65536
     NE: 2097152
   XL:
-    NV: 179558
-    NE: 11491700
+    NV: 158011
+    NE: 10112696
 args:
   colidx: {shape: "(NE,)", dtype: int64}
   esrc: {shape: "(NE,)", dtype: int64}

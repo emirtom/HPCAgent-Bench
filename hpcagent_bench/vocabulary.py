@@ -87,6 +87,10 @@ class PacketDef:
     packets: tuple[str, ...] = ()
     #: ``KEY=value`` switches, in order; a value may hold ``${VAR}``.
     env: tuple[tuple[str, str], ...] = ()
+    #: Prompt sections its setups turn off (False) or replace (a template name or a file), sorted by key.
+    prompt_sections: tuple[tuple[str, str | bool], ...] = ()
+    #: Template roots its setups search after the user's own (:class:`~hpcagent_bench.skill_frontmatter.PacketPrompt`).
+    template_dirs: tuple[str, ...] = ()
     #: The method directory this packet runs (its ``method.md`` fills ``{{HINTS}}``); at most one per packet.
     method: str = ""
     #: MCP tools this packet CARRIES, served only in its setups; its ``skills`` are then that tool's manual.

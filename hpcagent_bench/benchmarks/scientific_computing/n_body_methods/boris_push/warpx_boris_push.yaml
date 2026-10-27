@@ -18,10 +18,10 @@ parameters:
     np_particles: 5120000
     nsteps: 40
   XL:
-    np_particles: 100000000
+    np_particles: 88000000
     nsteps: 40
   fuzzed:
-    np_particles: [4096, 100000000]
+    np_particles: [4096, 88000000]
     nsteps: 40
 config:
   momentum_push_type: {domain: [0, 1, 2], selects: branch}  # Full / FirstHalf / SecondHalf

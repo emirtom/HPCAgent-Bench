@@ -14,7 +14,7 @@ parameters:
     TSTEPS: 70
     N: 6836
   XL:
-    TSTEPS: 100
+    TSTEPS: 88
     N: 22819
 args:
   A: {shape: "(N, N)", out: true, partitioned: true}

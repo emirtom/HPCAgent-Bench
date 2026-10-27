@@ -14,7 +14,7 @@ parameters:
     num_tasks: 9800
     npts: 17
   XL:
-    num_tasks: 3000000
+    num_tasks: 2640000
     npts: 24
 config:
   # Seeds the grid noise and the task-centre jitter: two input draws the initializer cannot vary otherwise.

@@ -545,7 +545,7 @@ def store_delivery(conn: sqlite3.Connection, grade_id: int, submission: Submissi
             results_db.store_source(conn, grade_id, part, submission.language.text, body)
 
 
-#: ``grade_cells.reason`` of a cell the guillotine stopped: credited baseline/cap, no p-value.
+#: ``grade_cells.reason`` of a cell the guillotine stopped: credited baseline / its one full run, no p-value.
 STOPPED_REASON = "stopped"
 
 

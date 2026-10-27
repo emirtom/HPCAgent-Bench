@@ -294,6 +294,26 @@ def reached_keys(token: str, definitions: Mapping[str, tags.PacketDef]) -> tuple
     return (token, *(key for sub in definition.packets for key in reached_keys(sub, definitions)))
 
 
+def prompt_overrides(spec: str) -> tuple[dict[str, str | bool], tuple[str, ...]]:
+    """The prompt sections and template roots of every packet ``spec`` reaches, in spec and composition order.
+
+    :raises ValueError: two packets set one section to different values.
+    """
+    definitions = tags.registry().packet_defs
+    sections: dict[str, str | bool] = {}
+    roots: dict[str, None] = {}
+    for token in spec_parts(spec):
+        for key in reached_keys(token, definitions):
+            definition = definitions[key]
+            for name, value in definition.prompt_sections:
+                if sections.setdefault(name, value) != value:
+                    raise ValueError(
+                        f"packet {key!r} sets prompt section {name}={value!r} but it is already {sections[name]!r}"
+                    )
+            roots.update(dict.fromkeys(definition.template_dirs))
+    return sections, tuple(roots)
+
+
 def refuse_frozen(spec: str) -> None:
     """Raise ``ValueError`` when ``spec`` reaches a frozen key (launchers call it; :func:`resolve` does not)."""
     definitions = tags.registry().packet_defs

@@ -33,10 +33,10 @@ parameters:
     n_iter: 60
     nelectron: 6893
   XL:
-    n_block_rows: 600000
+    n_block_rows: 528000
     block_size: 6
     n_iter: 60
-    nelectron: 2160000
+    nelectron: 1900800
 config:
   # Seeds the Kohn-Sham and inverse-overlap noise: two input draws the initializer cannot vary otherwise.
   seed: {domain: [19, 23], selects: seed}

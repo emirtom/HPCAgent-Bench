@@ -233,9 +233,9 @@ def test_a_remembered_cut_is_replayed_not_retimed_and_not_refused(monkeypatch: p
     assert result.baseline == "numba"
 
 
-def test_a_cut_is_never_stored_in_the_disk_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
-    """A cut is one rep over a budget derived from the leader, a lower bound one contended rep can
-    produce: kept on disk, it would set the denominator of every later job's grade of the kernel."""
+def test_a_race_with_a_cut_is_stored_in_the_disk_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+    """The denominator is the leader's measured time whether or not a slower candidate was cut, so every race is
+    kept and later grades of the cell time no baseline."""
     stored: list[object] = []
     monkeypatch.setenv(disk_cache.COMMIT_ENV, "test-commit")
     monkeypatch.setattr(disk_cache, "in_scope", lambda _spec: True)
@@ -245,10 +245,7 @@ def test_a_cut_is_never_stored_in_the_disk_cache(monkeypatch: pytest.MonkeyPatch
         result, timed, _ = grade(monkeypatch, c_ns=C_SLOW_NS, numba_samples=NUMBA_FAST, hidden=False)
         assert result.correct, result.detail
         assert timed == ["numba", "c"]
-        assert stored == []
-        scoring.BASELINE_TIMING_CACHE.clear()
-        grade(monkeypatch, c_ns=C_FAST_NS, numba_samples=NUMBA_SLOW, hidden=False)
-        assert len(stored) == 1  # an uncut race is still kept
+        assert len(stored) == 1
 
 
 def test_a_candidate_faster_than_the_leader_is_timed_in_full_and_wins(monkeypatch: pytest.MonkeyPatch) -> None:

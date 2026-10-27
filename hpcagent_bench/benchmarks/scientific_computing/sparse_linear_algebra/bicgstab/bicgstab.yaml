@@ -16,8 +16,8 @@ parameters:
   # XL was N 6e6 / nnz 7.7e8: one input draw took 113-166 s and 48.6 GB, past the derived memory cap
   # (23 GB), for a numba baseline of 0.6 s (the system converges in 5 BiCGSTAB iterations).
   XL:
-    N: 373744
-    nnz: 60132367
+    N: 328896
+    nnz: 52916689
 # The fp64 band (1e-9) is finer than the solve resolves: it stops on ||r|| < 1e-6 ||b||, and an implementation whose
 # reductions round differently can stop one iteration later where ||r|| lands at the threshold. That extra step moves
 # x (max|x| ~ 1) by at most 1.8e-6 (S/M/L, every scenario; reassociation alone 1e-16). Wrong answers land close on

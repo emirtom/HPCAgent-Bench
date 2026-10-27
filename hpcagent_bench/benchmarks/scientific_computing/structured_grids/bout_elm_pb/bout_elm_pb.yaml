@@ -42,7 +42,7 @@ parameters:
     nsteps: 45
   XL:
     NX: 488
-    NY: 392
+    NY: 348
     NZ: 386
     nsteps: 45
 args:

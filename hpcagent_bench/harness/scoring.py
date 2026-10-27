@@ -96,7 +96,8 @@ from hpcagent_bench.harness.grading import (
     was_cut,
 )
 from hpcagent_bench.harness.hidden_seeds import (
-    fresh_nonce,
+    SUBMIT_POOL,
+    pool_nonce,
     salted,
     secret_seed_first,
     secret_seed_harden,
@@ -547,7 +548,7 @@ class TimedCell:
     correct: bool = True
     suspect: bool = False  # implausible ratio at THIS cell (flagged, not failed)
     significant: bool = True  # the gate credited the measured ratio rather than flooring it to 1.0
-    #: The guillotine stopped the candidate: ``native_ns`` is the cap and ``ratio`` an upper bound; no p-value.
+    #: The guillotine stopped the candidate: ``native_ns`` is its one full run (at least the cap); no p-value.
     stopped: bool = False
     baseline: str = ""
     timing_reduction: str | None = None
@@ -1496,7 +1497,7 @@ def score(
     Only the recorded route (``hidden``) salts its seeds; ``datatype`` yields to the kernel's own where it has one."""
     datatype = graded_datatype(BenchSpec.load(task.kernel), datatype)
     salt = hidden and task.residency is not Residency.DISTRIBUTED
-    nonce = (seed_nonce if seed_nonce is not None else fresh_nonce()) if salt else 0
+    nonce = (seed_nonce if seed_nonce is not None else pool_nonce()) if salt else 0
     with native_call.rep_draw_scope():
         result = graded_score(
             submission,
@@ -1667,9 +1668,9 @@ def graded_score(
     public_seed = salted(secret_seed_second(), nonce) if hidden else secret_seed_first()
     # Inputs are drawn from ALL scenarios; one that does not list the requested layout fails the kernel.
     skipped = uncovered(spec, choice, initializer_seed(preset, public_seed, fuzz_iteration))
-    # The disk store, only for inputs a later call can draw again (salted seeds never repeat).
+    # The disk store, only for inputs a later call can draw again: the unsalted route and the submit pool.
     disk_scope = disk_cache.in_scope(spec)
-    fixed_route = nonce == 0
+    fixed_route = nonce <= SUBMIT_POOL
     disk = disk_scope and fixed_route
     # The draw's time is every per-rep draw's allowance (native_call.REP_DRAW_S).
     draw_start = time.monotonic()
@@ -2203,8 +2204,8 @@ def graded_score(
         # An empty sample list (attempted, no denominator) is cached too, so a hopeless candidate is not retried.
         if baselines and cached is None and not lost_compiled:
             remember_baseline_timing(bl_key, (dict(baselines), {k: list(v) for k, v in baseline_samples.items()}))
-            # A cut is a lower bound, never kept across jobs.
-            if disk_timing and not any(was_cut(baseline_samples, kind) for kind in kinds):
+            # A cut only bounds a candidate slower than the leader, whose time is the denominator either way.
+            if disk_timing:
                 disk_cache.store_timing(
                     disk_cache.harness_key(spec), bl_key, timing_names(BASELINE_TIMING_CACHE[bl_key])
                 )
@@ -2296,7 +2297,7 @@ def graded_score(
         canonical_followups = (
             [Followup(build=candidate_builder(task.kernel, choice, canonical))] if canonical is not None else []
         )
-        # A guillotine-stopped run is still graded once, and the cell is credited baseline / cap (an upper bound).
+        # A guillotine-stopped run is still graded once, run to its end, and the cell is credited baseline / that run.
         cap_s = guillotine_seconds(baseline_ns, timeout)
         stopped_ns = 0
         run_warmup = warmup
@@ -2369,8 +2370,9 @@ def graded_score(
                     repeat, warmup, cap_s
                 )
             except NativeCallTooSlow:
-                stopped_ns, run_warmup = round(cap_s * 1e9), 0
+                run_warmup = 0
                 (actual, native_samples, call_probes, all_outputs, timed_outputs), checks = public_run(1, 0, 0.0)
+                stopped_ns = max(round(cap_s * 1e9), round(min(native_samples, default=0)))
             if canonical_followups:
                 actual, all_outputs = all_outputs[0], all_outputs[1:]
             if aa:  # A/A: graded above, its TIMES are the baseline's again
@@ -2488,7 +2490,10 @@ def graded_score(
             reduced = timing.reduce_stopped(stopped_ns, primary_samples, backend=backend, varied=rep_data is not None)
             detail = "; ".join(
                 bit
-                for bit in (detail, f"stopped at the guillotine ({stopped_ns / 1e9:.3g}s a run): credited baseline/cap")
+                for bit in (
+                    detail,
+                    f"stopped at the guillotine ({cap_s:.3g}s a run; one full run took {stopped_ns / 1e9:.3g}s): credited baseline/that run",
+                )
                 if bit
             )
         else:

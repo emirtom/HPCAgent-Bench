@@ -13,7 +13,7 @@ parameters:
     TSTEPS: 28
     N: 393
   XL:
-    TSTEPS: 40
+    TSTEPS: 35
     N: 803
 args:
   A: {shape: "(N, N, N)", out: true, partitioned: true}

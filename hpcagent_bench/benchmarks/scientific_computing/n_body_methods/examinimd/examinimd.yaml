@@ -36,7 +36,7 @@ parameters:
     mass: 2.0
     displacement: 0.0
   XL:
-    cells_per_dim: 96
+    cells_per_dim: 92
     max_neighs: 96
     density: 0.8442
     epsilon: 1.0
