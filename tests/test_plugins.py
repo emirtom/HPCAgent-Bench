@@ -17,7 +17,7 @@ import pytest
 from hpcagent_agent import plugins as agent_plugins
 from hpcagent_agent.tools import registry
 
-from hpcagent_bench import plugins
+from hpcagent_bench import config, plugins, spec
 from hpcagent_bench.api import RunConfig
 from hpcagent_bench.categories import Preset
 from hpcagent_bench.harness import results_db, routes, service
@@ -238,6 +238,16 @@ def test_a_profile_larger_than_the_run_or_unknown_is_refused(asked: str, message
         service.profile_size(asked, Preset.L)
 
 
+def test_a_fuzzed_run_profiles_at_most_its_anchor() -> None:
+    spec.resolve_preset("M+fuzz")
+    try:
+        assert service.profile_size("M", Preset.FUZZED) is Preset.M
+        with pytest.raises(ValueError, match="larger than this run's 'M'"):
+            service.profile_size("L", Preset.FUZZED)
+    finally:
+        config.clear_override("fuzz.anchor")
+
+
 if __name__ == "__main__":
     import tempfile
 
@@ -247,6 +257,7 @@ if __name__ == "__main__":
         test_a_fast_profile_measures_at_a_rung_no_larger_than_the_run(asked, preset, size)
     for asked, message in (("XL", "larger than this run's 'L'"), ("huge", "not one of")):
         test_a_profile_larger_than_the_run_or_unknown_is_refused(asked, message)
+    test_a_fuzzed_run_profiles_at_most_its_anchor()
     test_an_episode_store_keeps_one_state_per_episode_and_forgets_an_idle_one()
     with tempfile.TemporaryDirectory() as scratch:
         test_a_results_row_records_each_plugin_by_its_digest(pathlib.Path(scratch))

@@ -665,15 +665,17 @@ def python_entry_refusal(submission: Submission, task: Task) -> str | None:
 
 
 def profile_size(asked: str | None, preset: Preset) -> Preset:
-    """The size rung a ``/profile`` measures at: ``asked`` if no larger than the run's ``preset``; else ValueError."""
+    """The size rung a ``/profile`` measures at: ``asked`` if no larger than the run's ``preset`` (a fuzzed run's
+    anchor rung, which its draws never exceed); else ValueError."""
     if asked is None:
         return preset
     rung = {rung.text: rung for rung in RUNGS}.get(asked)
-    if rung is None or preset not in RUNGS:
+    if rung is None:
         raise ValueError(f"size {asked!r} is not one of {', '.join(r.text for r in RUNGS)}")
-    if RUNGS.index(rung) > RUNGS.index(preset):
+    bound = config.current().fuzz.anchor if preset is Preset.FUZZED else preset
+    if RUNGS.index(rung) > RUNGS.index(bound):
         raise ValueError(
-            f"size {asked!r} is larger than this run's {preset.text!r}; a profile measures at most the graded size"
+            f"size {asked!r} is larger than this run's {bound.text!r}; a profile measures at most the graded size"
         )
     return rung
 
