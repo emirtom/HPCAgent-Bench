@@ -21,7 +21,7 @@ parameters:
     nproj: 815
     nstate: 406
   fuzzed:
-    ngrid: [354501, 958794]
+    ngrid: [354501, 843000]
     nproj: [457, 815]
     nstate: [228, 406]
 args:
