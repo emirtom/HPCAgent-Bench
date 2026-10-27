@@ -18,6 +18,10 @@ Kernels `cloudsc_solver_carry`, `graupel_sedim2b` (scientific computing) and `co
 - An installed `hpcagent-agent` ships its submission-mode templates and serves its tools (mcp 2.x).
 - Runner resume: crashed agents resume in place, a dropped connection resumes, and a resumed leg starts without the
   ended leg's end record; the crash-resume prompt names the reply-cap cut-off.
+- MCP tool calls send a progress heartbeat while the judge works, so the client's 1800 s idle timeout no longer
+  ends a slow `score`/`submit`; `profile` in a fuzzed run accepts sizes up to the fuzz anchor.
+- `plot` titles of per-kernel figures take the figure's type scale; the prompt says not to time full-size runs
+  in the shell.
 - Diagnostics: `prepare` warms the setup's reference language; `run-framework` resolves aliases, also under
   `--skip-existing`.
 - Kernels: `minife_numpy` draws `x` from the counter generator; `cloudsc_lateral_drift` initializes four separate
