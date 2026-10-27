@@ -423,7 +423,7 @@ def pipeline_parallel(sdfg: dace.SDFG, ctx: PipelineContext) -> None:
     from dace.transformation.passes.fuse_maps import FuseMaps
     from dace.transformation.passes.length_one_array_scalar_conversion import ConvertLengthOneArraysToScalars
     from dace.transformation.passes.parallelization_prep import ShortLoopUnroll
-    from dace.transformation.passes.parallelize_loops import ParallelizeLoops
+    from dace.transformation.passes.parallelization.parallelize_loops import ParallelizeLoops
     from dace.transformation.passes.scalar_fission import ScalarFission
     from dace.transformation.passes.unique_loop_iterators import UniqueLoopIterators
 
