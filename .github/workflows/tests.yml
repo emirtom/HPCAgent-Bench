@@ -396,7 +396,7 @@ jobs:
             uv pip install -q --python "$venv" -r "$venv.txt" ./agent pytest
             # Outside the checkout: the repo's conftest and pytest config need the bench, which this venv lacks.
             mkdir -p "$venv.tests" && cp tests/test_runner_resume_smoke.py "$venv.tests/"
-            (cd "$venv.tests" && HPCAGENT_BENCH_RUNNER_SMOKE="$harness" "$venv/bin/python" -m pytest -q \
+            (cd "$venv.tests" && PYTEST_ADDOPTS= HPCAGENT_BENCH_RUNNER_SMOKE="$harness" "$venv/bin/python" -m pytest -q \
               -p no:cacheprovider -rfEs --rootdir . -k "$harness" test_runner_resume_smoke.py)
           done
 

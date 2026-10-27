@@ -126,7 +126,7 @@ ECMWF dwarf-p-cloudsc (IFS cloud microphysics)
 Project: https://github.com/ecmwf-ifs/dwarf-p-cloudsc
 License: Apache-2.0
 Copyright ECMWF (European Centre for Medium-Range Weather Forecasts)
-Covers: cloudsc, cloudsc_cover_carry, cloudsc_ice_supersaturation, cloudsc_init, cloudsc_liq_ice_frac, cloudsc_monolith, cloudsc_rain_evaporation, cloudsc_saturation, cloudsc_sedimentation, cloudsc_snow_autoconversion, cloudsc_subsidence_forcing, cloudsc_tidy, lu_solver
+Covers: cloudsc, cloudsc_cover_carry, cloudsc_ice_supersaturation, cloudsc_init, cloudsc_liq_ice_frac, cloudsc_monolith, cloudsc_rain_evaporation, cloudsc_saturation, cloudsc_sedimentation, cloudsc_snow_autoconversion, cloudsc_solver_carry, cloudsc_subsidence_forcing, cloudsc_tidy, lu_solver
 
 ====================================================================================================
 ExaMiniMD
@@ -208,7 +208,7 @@ KernelBench
 Project: https://github.com/ScalingIntelligence/KernelBench
 License: MIT
 Copyright (c) 2023 Anne Ouyang, Simon Guo, Azalia Mirhoseini, Scaling Intelligence Lab, Stanford University
-Covers 259 kernels, listed in CONTRIBUTORS.md.
+Covers 260 kernels, listed in CONTRIBUTORS.md.
 A. Ouyang et al., "KernelBench: Can LLMs Write Efficient GPU Kernels?", arXiv:2502.10517.
 Vendored as the third_party/KernelBench submodule; detail names the PyTorch model each port translates.
 
