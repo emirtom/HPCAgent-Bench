@@ -18,8 +18,8 @@ parameters:
     NY: 5844
   XL:
     TMAX: 50
-    NX: 12197
-    NY: 14230
+    NX: 11470
+    NY: 13380
 args:
   ex: {shape: "(NX, NY)", out: true, partitioned: true}
   ey: {shape: "(NX, NY)", out: true, partitioned: true}

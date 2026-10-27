@@ -15,7 +15,7 @@ parameters:
     N: 2509
   XL:
     TSTEPS: 5
-    N: 24000
+    N: 22500
 args:
   A: {shape: "(N, N)", out: true}
 init:

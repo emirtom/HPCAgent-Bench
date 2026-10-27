@@ -48,7 +48,7 @@ parameters:
     m: 145
   XL:
     ngrid: 132
-    m: 256
+    m: 225
   fuzzed:  # M..L: below M the numba baseline runs in under a millisecond
     ngrid: [27, 60]
     m: [27, 145]

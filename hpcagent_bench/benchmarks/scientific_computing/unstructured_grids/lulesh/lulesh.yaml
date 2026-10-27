@@ -52,7 +52,7 @@ parameters:
     numSymm: 4225
   XL:
     numElem: 1000000   # edgeElems = 100: the emitted C reference allocates ~10.9 KB of heap
-    nsteps: 150         # transients per element (~10.9 GB here), so a larger XL does not fit
+    nsteps: 130         # transients per element (~10.9 GB here), so a larger XL does not fit
     numNode: 1030301   # the held-out grade's memory cap
     numSymm: 10201
   # Fuzzed draws MUST keep numElem a perfect cube -- initialize() -> _edge_elems()

@@ -36,7 +36,7 @@ parameters:
     ngrid: 24
     nvec: 12
   XL:
-    ngrid: 29
+    ngrid: 28
     nvec: 18
   fuzzed:
     ngrid: [12, 28]

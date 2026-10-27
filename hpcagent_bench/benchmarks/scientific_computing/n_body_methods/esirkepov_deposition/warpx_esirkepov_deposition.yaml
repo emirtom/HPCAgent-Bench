@@ -20,7 +20,7 @@ parameters:
     ncells: 66
     depos_order: 3
   XL:
-    np_particles: 25362251
+    np_particles: 22318781
     ncells: 182
     depos_order: 3
   fuzzed:
