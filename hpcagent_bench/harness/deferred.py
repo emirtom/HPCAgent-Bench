@@ -135,7 +135,9 @@ def replay(queues: Sequence[pathlib.Path], judge_url: str, workers: int) -> Repl
         if entry.setup:
             headers[fused.SETUP_HEADER] = entry.setup
         try:
-            answer = httpx.post(f"{judge_url}/submit", content=entry.body.encode("utf-8"), headers=headers, timeout=None)
+            answer = httpx.post(
+                f"{judge_url}/submit", content=entry.body.encode("utf-8"), headers=headers, timeout=None
+            )
         except httpx.HTTPError as exc:
             with lock:
                 failed.append(f"{entry.request_id}: {type(exc).__name__}: {exc}")
