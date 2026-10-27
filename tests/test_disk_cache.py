@@ -310,8 +310,8 @@ def test_a_second_process_grades_from_the_stored_reference_and_timing(tmp_path: 
 @pytest.mark.integration
 def test_every_runs_expected_outputs_and_one_timing_are_stored_for_both_routes(tmp_path: pathlib.Path) -> None:
     """Every timed run is graded against its own pool input, whose expected outputs are stored: /score's
-    public input and its pool inputs, and /submit's, whose public input is one of the secret pool's (each of the
-    two submits draws one); a later /score runs no reference at all. The baseline timing is keyed on the redraw
+    public input and its pool inputs, and /submit's, whose public input is the fixed secret set's; a later /score
+    runs no reference at all. The baseline timing is keyed on the redraw
     rule and the structural inputs, so the first grade's timing serves every later /score and /submit of the
     cell."""
     env = {"HPCAGENT_BENCH_CACHE_DISK_RESULTS_LEVELS": "[2]", "HPCAGENT_BENCH_CACHE_DISK_RESULTS_TRACKS": "[]"}

@@ -96,8 +96,7 @@ from hpcagent_bench.harness.grading import (
     was_cut,
 )
 from hpcagent_bench.harness.hidden_seeds import (
-    SUBMIT_POOL,
-    pool_nonce,
+    SUBMIT_NONCE,
     salted,
     secret_seed_first,
     secret_seed_harden,
@@ -1497,7 +1496,7 @@ def score(
     Only the recorded route (``hidden``) salts its seeds; ``datatype`` yields to the kernel's own where it has one."""
     datatype = graded_datatype(BenchSpec.load(task.kernel), datatype)
     salt = hidden and task.residency is not Residency.DISTRIBUTED
-    nonce = (seed_nonce if seed_nonce is not None else pool_nonce()) if salt else 0
+    nonce = (seed_nonce if seed_nonce is not None else SUBMIT_NONCE) if salt else 0
     with native_call.rep_draw_scope():
         result = graded_score(
             submission,
@@ -1668,9 +1667,9 @@ def graded_score(
     public_seed = salted(secret_seed_second(), nonce) if hidden else secret_seed_first()
     # Inputs are drawn from ALL scenarios; one that does not list the requested layout fails the kernel.
     skipped = uncovered(spec, choice, initializer_seed(preset, public_seed, fuzz_iteration))
-    # The disk store, only for inputs a later call can draw again: the unsalted route and the submit pool.
+    # The disk store, only for inputs a later call can draw again: the unsalted route and the fixed submit set.
     disk_scope = disk_cache.in_scope(spec)
-    fixed_route = nonce <= SUBMIT_POOL
+    fixed_route = nonce <= SUBMIT_NONCE
     disk = disk_scope and fixed_route
     # The draw's time is every per-rep draw's allowance (native_call.REP_DRAW_S).
     draw_start = time.monotonic()
