@@ -1,7 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Baseline races in the results DB (harness/baseline_db.py): a race stored by one process is read by the next
-(from its own DB or a ``cache.baseline_dbs`` one), a DB from before the table reads and merges as holding none, and
+(from its own DB, the judge store's or a ``cache.baseline_dbs`` one), a DB from before the table reads and merges as holding none, and
 merging keeps the latest measurement of a race."""
 
 import contextlib
@@ -84,6 +84,29 @@ def test_a_race_one_process_stored_seeds_another_through_baseline_dbs(
     prep = run.stdout.strip().splitlines()[-1]
     assert baseline_db.load(KEY) is None
     monkeypatch.setenv("HPCAGENT_BENCH_CACHE_BASELINE_DBS", json.dumps([prep]))
+    assert baseline_db.load(KEY) == TIMING
+
+
+def test_a_race_a_baselines_job_stored_seeds_a_judge_through_the_store(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """In a job, a race also lands in the judge store's DB (a rollback journal: WAL does not span nodes), which a judge
+    with its own, empty results DB and no ``cache.baseline_dbs`` reads."""
+    script = tmp_path / "store.py"
+    script.write_text(STORE)
+    job = {"HPCAGENT_BENCH_SNAPSHOT_COMMIT": "c" * 40, "HPCAGENT_BENCH_CACHE_DISK_RESULTS_DIR": str(tmp_path / "store")}
+    prep_db = pathlib.Path(recording.db_path()).parent / "prep-store" / "hpcagent_bench.db"
+    env = {**os.environ, **job, "HPCAGENT_BENCH_RECORD_DB_PATH": str(prep_db)}
+    argv = [sys.executable, str(script), json.dumps(dataclasses.asdict(KEY)), json.dumps(TIMING)]
+    run = subprocess.run(argv, env=env, capture_output=True, text=True, check=False)
+    assert run.returncode == 0, run.stderr[-2000:]
+    assert baseline_db.load(KEY) is None
+    for name, value in job.items():
+        monkeypatch.setenv(name, value)
+    shared = baseline_db.shared_db()
+    assert shared == tmp_path / "store" / baseline_db.SHARED_DB
+    with contextlib.closing(results_db.connect_ro(shared)) as conn:
+        assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
     assert baseline_db.load(KEY) == TIMING
 
 
