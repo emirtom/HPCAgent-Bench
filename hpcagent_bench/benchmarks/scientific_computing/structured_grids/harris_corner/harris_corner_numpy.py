@@ -13,8 +13,9 @@
 #   2. structure-tensor products Ixx = Ix*Ix, Iyy = Iy*Iy, Ixy = Ix*Iy,
 #   3. a 3x3 box sum of each product over the window -> Sxx, Syy, Sxy,
 #   4. the polynomial response det - k*trace^2 (multiply / add / subtract).
-# Each stage erodes the valid region by one pixel, so R is written only on the
-# 2-pixel-eroded interior; the border ring is left at its initial value.
+# The Sobel and box-sum stages each shrink the valid region by one pixel
+# on every side. The output R has the same shape as img. The kernel writes
+# only R[2:-2, 2:-2] and leaves the two-pixel border untouched.
 #
 # Method / attribution:
 #   - Clean-room reimplementation from the published algorithm; no Halide source
@@ -29,7 +30,7 @@ import numpy as np
 def kernel(img, R, k=0.04):
     # k is the Harris sensitivity constant, a config knob (harris_corner.yaml).
 
-    # Stage 1: 3x3 Sobel gradients on the 1-pixel-eroded interior -> (H-2, W-2).
+    # Stage 1: 3x3 Sobel gradients on the 1-pixel-eroded interior -> produces a matrix of size (height-2, width-2).
     # Gx = [[-1,0,1],[-2,0,2],[-1,0,1]] / 8, Gy is its transpose.
     Ix = (
         (img[:-2, 2:] - img[:-2, :-2]) + 2.0 * (img[1:-1, 2:] - img[1:-1, :-2]) + (img[2:, 2:] - img[2:, :-2])
