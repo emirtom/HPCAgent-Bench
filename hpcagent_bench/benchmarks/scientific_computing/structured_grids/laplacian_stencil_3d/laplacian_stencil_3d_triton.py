@@ -12,6 +12,10 @@
 # power of two, so no lanes idle when K is not one. Each program writes -1/2 * its psi * lap sums, per (z, k)
 # position, into its own partial row; one torch reduction folds the rows and z into ekin. No atomics, so the
 # result is deterministic.
+#
+# Precision (hpcagent_bench/docs/numerical_validation.md): fp64 and fp32 compute and accumulate in themselves;
+# fp16, bf16 and both fp8 formats load into fp32, compute and accumulate there (lap, the partial rows and the
+# ekin reduction), and round to the storage format only when lap and ekin are written.
 import torch
 import triton
 import triton.language as tl
@@ -44,8 +48,8 @@ def periodic(i, n):
 
 @triton.autotune(configs=laplacian_configs(), key=["N", "K"], cache_results=True)
 @triton.jit
-def laplacian_kernel(psi, lap, partial, coeff, N, K, BLOCK: tl.constexpr, X_CHUNK: tl.constexpr):
-    """coeff = [3 * c0, w1, w2, w3, w4, inv_h2] in psi's dtype.
+def laplacian_kernel(psi, lap, partial, coeff, N, K, ACC: tl.constexpr, BLOCK: tl.constexpr, X_CHUNK: tl.constexpr):
+    """coeff = [3 * c0, w1, w2, w3, w4, inv_h2] and partial in ACC, the accumulation dtype.
 
     partial[xc * N + y, s] receives -1/2 * sum over this program's x planes of psi * lap at flat position s."""
     st = tl.program_id(0)
@@ -75,19 +79,22 @@ def laplacian_kernel(psi, lap, partial, coeff, N, K, BLOCK: tl.constexpr, X_CHUN
     column = psi + y * L + s
     x0 = xc * X_CHUNK
     # Register queue: q0 = x - 4, ..., q4 = x (centre), ..., q8 = x + 4.
-    q0 = tl.load(column + periodic(x0 - 4, N) * plane, mask=mask, other=0.0)
-    q1 = tl.load(column + periodic(x0 - 3, N) * plane, mask=mask, other=0.0)
-    q2 = tl.load(column + periodic(x0 - 2, N) * plane, mask=mask, other=0.0)
-    q3 = tl.load(column + periodic(x0 - 1, N) * plane, mask=mask, other=0.0)
-    q4 = tl.load(column + x0 * plane, mask=mask, other=0.0)
-    q5 = tl.load(column + periodic(x0 + 1, N) * plane, mask=mask, other=0.0)
-    q6 = tl.load(column + periodic(x0 + 2, N) * plane, mask=mask, other=0.0)
-    q7 = tl.load(column + periodic(x0 + 3, N) * plane, mask=mask, other=0.0)
-    energy = tl.zeros((BLOCK,), dtype=q4.dtype)
+    q0 = tl.load(column + periodic(x0 - 4, N) * plane, mask=mask, other=0.0).to(ACC)
+    q1 = tl.load(column + periodic(x0 - 3, N) * plane, mask=mask, other=0.0).to(ACC)
+    q2 = tl.load(column + periodic(x0 - 2, N) * plane, mask=mask, other=0.0).to(ACC)
+    q3 = tl.load(column + periodic(x0 - 1, N) * plane, mask=mask, other=0.0).to(ACC)
+    q4 = tl.load(column + x0 * plane, mask=mask, other=0.0).to(ACC)
+    q5 = tl.load(column + periodic(x0 + 1, N) * plane, mask=mask, other=0.0).to(ACC)
+    q6 = tl.load(column + periodic(x0 + 2, N) * plane, mask=mask, other=0.0).to(ACC)
+    q7 = tl.load(column + periodic(x0 + 3, N) * plane, mask=mask, other=0.0).to(ACC)
+    energy = tl.zeros((BLOCK,), dtype=ACC)
     for x in range(x0, tl.minimum(x0 + X_CHUNK, N)):
-        q8 = tl.load(column + periodic(x + 4, N) * plane, mask=mask, other=0.0)
+        q8 = tl.load(column + periodic(x + 4, N) * plane, mask=mask, other=0.0).to(ACC)
         here = psi + x * plane
-        # Same association as the reference: axis 0, 1, 2; radius 1..4; acc + w * (psi[i - m] + psi[i + m]).
+        # The reference's order of operations: axis 0, 1, 2; radius 1..4; acc + w * (psi[i - m] + psi[i + m]).
+        # The results need not match the reference bit for bit: the compiler may contract a multiply and an add
+        # into one FMA, which rounds once instead of twice. The repository allows that contraction (flags.py
+        # pins -ffp-contract=fast for the compiled columns), and the tolerance band covers it.
         acc = c0 * q4
         acc = acc + w1 * (q3 + q5)
         acc = acc + w2 * (q2 + q6)
@@ -95,28 +102,36 @@ def laplacian_kernel(psi, lap, partial, coeff, N, K, BLOCK: tl.constexpr, X_CHUN
         acc = acc + w4 * (q0 + q8)
         yb = here + s
         acc = acc + w1 * (
-            tl.load(yb + periodic(y - 1, N) * L, mask=mask, other=0.0)
-            + tl.load(yb + periodic(y + 1, N) * L, mask=mask, other=0.0)
+            tl.load(yb + periodic(y - 1, N) * L, mask=mask, other=0.0).to(ACC)
+            + tl.load(yb + periodic(y + 1, N) * L, mask=mask, other=0.0).to(ACC)
         )
         acc = acc + w2 * (
-            tl.load(yb + periodic(y - 2, N) * L, mask=mask, other=0.0)
-            + tl.load(yb + periodic(y + 2, N) * L, mask=mask, other=0.0)
+            tl.load(yb + periodic(y - 2, N) * L, mask=mask, other=0.0).to(ACC)
+            + tl.load(yb + periodic(y + 2, N) * L, mask=mask, other=0.0).to(ACC)
         )
         acc = acc + w3 * (
-            tl.load(yb + periodic(y - 3, N) * L, mask=mask, other=0.0)
-            + tl.load(yb + periodic(y + 3, N) * L, mask=mask, other=0.0)
+            tl.load(yb + periodic(y - 3, N) * L, mask=mask, other=0.0).to(ACC)
+            + tl.load(yb + periodic(y + 3, N) * L, mask=mask, other=0.0).to(ACC)
         )
         acc = acc + w4 * (
-            tl.load(yb + periodic(y - 4, N) * L, mask=mask, other=0.0)
-            + tl.load(yb + periodic(y + 4, N) * L, mask=mask, other=0.0)
+            tl.load(yb + periodic(y - 4, N) * L, mask=mask, other=0.0).to(ACC)
+            + tl.load(yb + periodic(y + 4, N) * L, mask=mask, other=0.0).to(ACC)
         )
         zb = here + y * L
-        acc = acc + w1 * (tl.load(zb + zm1, mask=mask, other=0.0) + tl.load(zb + zp1, mask=mask, other=0.0))
-        acc = acc + w2 * (tl.load(zb + zm2, mask=mask, other=0.0) + tl.load(zb + zp2, mask=mask, other=0.0))
-        acc = acc + w3 * (tl.load(zb + zm3, mask=mask, other=0.0) + tl.load(zb + zp3, mask=mask, other=0.0))
-        acc = acc + w4 * (tl.load(zb + zm4, mask=mask, other=0.0) + tl.load(zb + zp4, mask=mask, other=0.0))
+        acc = acc + w1 * (
+            tl.load(zb + zm1, mask=mask, other=0.0).to(ACC) + tl.load(zb + zp1, mask=mask, other=0.0).to(ACC)
+        )
+        acc = acc + w2 * (
+            tl.load(zb + zm2, mask=mask, other=0.0).to(ACC) + tl.load(zb + zp2, mask=mask, other=0.0).to(ACC)
+        )
+        acc = acc + w3 * (
+            tl.load(zb + zm3, mask=mask, other=0.0).to(ACC) + tl.load(zb + zp3, mask=mask, other=0.0).to(ACC)
+        )
+        acc = acc + w4 * (
+            tl.load(zb + zm4, mask=mask, other=0.0).to(ACC) + tl.load(zb + zp4, mask=mask, other=0.0).to(ACC)
+        )
         out = scale * acc
-        tl.store(lap + x * plane + y * L + s, out, mask=mask)
+        tl.store(lap + x * plane + y * L + s, out.to(lap.dtype.element_ty), mask=mask)
         energy += q4 * out
         q0, q1, q2, q3, q4, q5, q6, q7 = q1, q2, q3, q4, q5, q6, q7, q8
     row = (xc * N + y).to(tl.int64)
@@ -124,12 +139,18 @@ def laplacian_kernel(psi, lap, partial, coeff, N, K, BLOCK: tl.constexpr, X_CHUN
     tl.store(partial + row * L + s, -0.5 * energy, mask=mask)
 
 
+def accumulation_dtype(dtype):
+    """The torch dtype ``dtype`` accumulates in: itself for fp64 and fp32, fp32 for fp16, bf16 and fp8."""
+    return torch.float64 if dtype == torch.float64 else torch.float32
+
+
 # The last coefficient tensor, keyed by (inv_h2, dtype, device): building it costs a host-to-device copy per call.
 COEFFICIENTS: dict[tuple[float, torch.dtype, torch.device], torch.Tensor] = {}
 
 
 def coefficients(inv_h2, dtype, device):
-    """[3 * c0, w1, w2, w3, w4, inv_h2] with the reference's literals (_C0, _CW), stored in ``dtype``."""
+    """[3 * c0, w1, w2, w3, w4, inv_h2] with the reference's literals (_C0, _CW), stored in ``dtype``, the
+    accumulation dtype."""
     key = (float(inv_h2), dtype, device)
     if key not in COEFFICIENTS:
         COEFFICIENTS.clear()
@@ -144,9 +165,10 @@ def coefficients(inv_h2, dtype, device):
 def kernel(inv_h2, psi, lap, ekin):
     N = int(psi.shape[0])
     K = int(psi.shape[3])
-    coeff = coefficients(inv_h2, psi.dtype, psi.device)
+    acc = accumulation_dtype(psi.dtype)
+    coeff = coefficients(inv_h2, acc, psi.device)
     # Rows are overwritten, never accumulated, so autotune trials need no restore.
-    partial = torch.empty((N * triton.cdiv(N, MIN_X_CHUNK), N * K), dtype=psi.dtype, device=psi.device)
+    partial = torch.empty((N * triton.cdiv(N, MIN_X_CHUNK), N * K), dtype=acc, device=psi.device)
     rows = {}
 
     def grid(meta):
@@ -154,6 +176,10 @@ def kernel(inv_h2, psi, lap, ekin):
         rows["used"] = N * x_chunks
         return (triton.cdiv(N * K, meta["BLOCK"]), N, x_chunks)
 
-    laplacian_kernel[grid](psi, lap, partial, coeff, N, K)
+    laplacian_kernel[grid](psi, lap, partial, coeff, N, K, ACC=tl.float64 if acc == torch.float64 else tl.float32)
     # Each row holds (z, k) pairs with k innermost: viewing it as (rows * N, K) leaves one sum over all but k.
-    torch.sum(partial[: rows["used"]].view(-1, K), dim=0, out=ekin)
+    energy = partial[: rows["used"]].view(-1, K)
+    if ekin.dtype == acc:
+        torch.sum(energy, dim=0, out=ekin)
+    else:
+        ekin.copy_(torch.sum(energy, dim=0))
