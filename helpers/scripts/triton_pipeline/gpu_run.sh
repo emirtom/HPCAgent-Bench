@@ -1,0 +1,89 @@
+#!/bin/bash
+# Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# One compute-node allocation for the Triton baseline pipeline (run INSIDE srun on the student cluster).
+#
+#   gpu_run.sh <checkout> <expected-sha> <kernel> <step> [<step> ...]
+#
+# Steps (each prints one "RESULT {...}" JSON line that roofline.py / the ledger picks up):
+#   S                    harness S preset, -r 3, float32         (validation + median)
+#   default              harness default fuzzed preset, float32: 20 XL-anchored draws, each validated against
+#                        the CPU reference on the allocation's 3 cores. It does NOT fit a 5-minute allocation for
+#                        most kernels: run it once per final SHA in a long allocation (-t 30, STEP_TIMEOUT=1500).
+#   preset:<P>:<dtype>   any harness preset/dtype, e.g. preset:M:float32, preset:fuzzed:bf16
+#   probe:<P>            probe.py timing at preset P (after JIT and autotune), CUDA events, median of 20
+#   ncu:<P>              probe.py under Nsight Compute: DRAM read/write bytes and kernel time of one call
+#
+# The revision check runs first and nothing is measured unless HEAD == expected SHA, the tree is clean, the
+# kernel's _triton.py exists and the GPU is an RTX 5060 Ti. The grading sandbox is disabled for harness steps
+# because the node's AppArmor policy (kernel.apparmor_restrict_unprivileged_userns=1) blocks user namespaces;
+# the user approved HPCAGENT_BENCH_GRADING_SEAL=false for compute-node harness runs only.
+set -u
+CHECKOUT=$1 EXPECT=$2 KERNEL=$3
+shift 3
+HERE=$(cd "$(dirname "$0")" && pwd -P)
+ulimit -c 0
+ulimit -s "$(ulimit -H -s)"
+export OMP_STACKSIZE=512M OMP_THREAD_LIMIT=$(nproc)
+export PATH=/scratch/users/emuete/bin:$PATH UV_CACHE_DIR=/scratch/users/emuete/.cache/uv
+cd "$CHECKOUT" || { echo "REVISION CHECK FAILED: no checkout $CHECKOUT"; exit 2; }
+
+KFILE=$(find hpcagent_bench/benchmarks -name "${KERNEL}_triton.py" | head -1)
+HEAD_SHA=$(git rev-parse HEAD)
+STATUS=$(git status --porcelain)
+GPU=$(nvidia-smi --query-gpu=name,driver_version,compute_cap --format=csv,noheader | head -1)
+echo "== revision check"
+echo "host: $(hostname)  gpu: $GPU  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-}"
+echo "path: $(pwd -P)"
+echo "HEAD: $HEAD_SHA (expected $EXPECT)"
+echo "status: [$STATUS]"
+echo "kernel file: ${KFILE:-MISSING}"
+if [ "$HEAD_SHA" != "$EXPECT" ] || [ -n "$STATUS" ] || [ -z "$KFILE" ] || [[ "$GPU" != *"5060 Ti"* ]]; then
+  echo "REVISION CHECK FAILED; not measuring"
+  exit 2
+fi
+echo "REVISION CHECK OK"
+PY=.venv/bin/python
+$PY -c "import torch, triton; print('torch', torch.__version__, 'cuda', torch.version.cuda, 'triton', triton.__version__)"
+
+harness() {  # harness <preset> <dtype> [extra]
+  local p=$1 d=$2; shift 2
+  local pa=(-p "$p"); [ "$p" = fuzzed ] && pa=()
+  local log start=$SECONDS
+  # STEP_TIMEOUT (s) caps one harness step so a slow step cannot eat the rest of the allocation.
+  log=$(HPCAGENT_BENCH_GRADING_SEAL=false timeout "${STEP_TIMEOUT:-240}" uv run --extra nvgpu hpcagent-bench \
+    run-framework -f triton -b "$KERNEL" "${pa[@]}" -d "$d" "$@" 2>&1 | grep -v "^numpyto_c")
+  [ ${PIPESTATUS[0]:-0} = 124 ] || [ $((SECONDS - start)) -ge "${STEP_TIMEOUT:-240}" ] \
+    && log="$log"$'\n'"ERROR: step TIMEOUT after ${STEP_TIMEOUT:-240}s"
+  echo "step wall time: $((SECONDS - start))s"
+  echo "$log" | grep -e "validation" -e "median" -e "FAIL" -e "SUCCESS" -e "rror" | cut -c1-400 | tail -12
+  $PY "$HERE/parse_harness.py" "$KERNEL" "$EXPECT" "$p" "$d" <<<"$log"
+}
+# Nsight Compute 2026.3 comes from the cluster's CUDA module (not on the compute node's default PATH).
+NCU=$(command -v ncu || { module load cuda/13.2.2 >/dev/null 2>&1; command -v ncu; } || echo /cluster/data/cuda/x86_64/13.2.2/bin/ncu)
+NCU_METRICS=gpu__time_duration.sum,dram__bytes_op_read.sum,dram__bytes_op_write.sum,dram__throughput.avg.pct_of_peak_sustained_elapsed,sm__throughput.avg.pct_of_peak_sustained_elapsed,l1tex__t_sector_hit_rate.pct,launch__registers_per_thread,sm__warps_active.avg.pct_of_peak_sustained_active
+
+LEDGER=/scratch/users/emuete/pipeline/ledger/$KERNEL.jsonl
+mkdir -p "$(dirname "$LEDGER")"
+run_steps() {
+for step in "$@"; do
+  echo "== step $step"
+  case "$step" in
+    S) harness S float32 -r 3 ;;
+    default) harness fuzzed float32 ;;
+    preset:*) IFS=: read -r _ p d <<<"$step"; harness "$p" "$d" ;;
+    probe:*) $PY "$HERE/probe.py" "$KERNEL" "${step#probe:}" --sha "$EXPECT" ;;
+    ncu:*)
+      # GPU's own clocks, caches flushed before each kernel: one probe call after JIT + autotune.
+      echo "ncu: $NCU ($("$NCU" --version | tail -1)); settings: --clock-control none --cache-control all"
+      "$NCU" --profile-from-start off --clock-control none --cache-control all --csv --print-units base --metrics "$NCU_METRICS" \
+        $PY "$HERE/probe.py" "$KERNEL" "${step#ncu:}" --sha "$EXPECT" --ncu 2>&1 | grep -v "^==PROF==" \
+        | $PY "$HERE/roofline.py" ncu-csv "$KERNEL" "$EXPECT" "${step#ncu:}" ;;
+    *) echo "unknown step $step"; return 3 ;;
+  esac
+done
+}
+# Every RESULT line is appended to the kernel's ledger (one JSON object per line) for roofline.py report.
+# sed -u writes each line as it arrives, so a step killed by the Slurm time limit still leaves earlier rows.
+run_steps "$@" 2>&1 | tee >(grep --line-buffered '^RESULT ' | sed -u 's/^RESULT //' >>"$LEDGER")

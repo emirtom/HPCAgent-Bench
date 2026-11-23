@@ -1,0 +1,8 @@
+{
+  "gpu": "NVIDIA GeForce RTX 5060 Ti (sm_120, 36 SMs, 32 MiB L2)",
+  "fp32_TFLOPs": 28.5,
+  "fp32_TFLOPs_note": "36 SMs x 128 FP32 lanes x 2 (FMA) x 3.09 GHz max SM clock",
+  "bw_peak_GBps": 448,
+  "bw_measured_GBps": 428,
+  "bw_measured_note": "best of bw.py on studgpu-node01, 2026-11-23: read-only/write-only/Triton read 422-428 GB/s; copy (R+W) only 385 GB/s, so copy is NOT the ceiling"
+}
