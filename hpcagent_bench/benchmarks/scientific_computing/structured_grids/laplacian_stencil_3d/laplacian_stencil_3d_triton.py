@@ -1,116 +1,159 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Triton baseline for laplacian_stencil_3d: 8th-order periodic 3-D Laplacian of a batch of k
-# wavefunctions psi[x, y, z, k] (k innermost), then the per-state kinetic energy
+# Triton kernel for laplacian_stencil_3d: 8th-order periodic 3-D Laplacian of a batch of k
+# wavefunctions psi[x, y, z, k] (k innermost), fused with the per-state kinetic energy
 # ekin[j] = -1/2 sum_r psi[r, j] * lap[r, j].
 #
-# Pass 1 (laplacian_kernel): one program per (x, y, z tile); the tile is [BLOCK_Z, BLOCK_K] with k contiguous,
-# so every one of the 25 stencil loads is a coalesced row segment. Wraparound indices reproduce np.roll.
-# Pass 2 (ekin_partial_kernel): each program reduces a [BLOCK_S, BLOCK_K] slab of psi * lap over space into one
-# partial row; torch sums the partial rows. No atomics, so the result is deterministic.
+# Each (x, y) row psi[x, y, :, :] is one contiguous run of L = N * K values, and a z shift by m is a shift by
+# m * K along it, periodic modulo L. One program owns a BLOCK-wide segment of that run at fixed y and marches
+# along x over X_CHUNK planes. The nine x-plane segments x-4 .. x+4 rotate through registers, so each step loads
+# one new x plane instead of nine; y and z neighbours come through L1/L2. The flat segment avoids padding K to a
+# power of two, so no lanes idle when K is not one. Each program writes -1/2 * its psi * lap sums, per (z, k)
+# position, into its own partial row; one torch reduction folds the rows and z into ekin. No atomics, so the
+# result is deterministic.
 import torch
 import triton
 import triton.language as tl
 
 
 def laplacian_configs():
+    # Measured on the RTX 5060 Ti (fp32; N, K in (106, 14), (64, 8), (96, 64), (128, 33), (160, 16), (200, 5)),
+    # the default budget keeps the first four: the best geometric-mean slowdown against each shape's best (1.04),
+    # then the fastest at (106, 14) and (200, 5), at (160, 16), and at (96, 64).
     return [
-        triton.Config({"BLOCK_Z": 16}, num_warps=4),
-        triton.Config({"BLOCK_Z": 32}, num_warps=4),
-        triton.Config({"BLOCK_Z": 8}, num_warps=2),
-        triton.Config({"BLOCK_Z": 64}, num_warps=8),
+        triton.Config({"BLOCK": 128, "X_CHUNK": 32}, num_warps=2),
+        triton.Config({"BLOCK": 256, "X_CHUNK": 16}, num_warps=2),
+        triton.Config({"BLOCK": 512, "X_CHUNK": 32}, num_warps=4),
+        triton.Config({"BLOCK": 256, "X_CHUNK": 32}, num_warps=4),
+        triton.Config({"BLOCK": 256, "X_CHUNK": 32}, num_warps=2),
+        triton.Config({"BLOCK": 128, "X_CHUNK": 64}, num_warps=2),
     ]
 
 
-def ekin_configs():
-    return [
-        triton.Config({"BLOCK_S": 256}, num_warps=4),
-        triton.Config({"BLOCK_S": 512}, num_warps=8),
-        triton.Config({"BLOCK_S": 128}, num_warps=4),
-        triton.Config({"BLOCK_S": 1024}, num_warps=8),
-    ]
+# The partial buffer has a row per (x chunk, y); the config with the smallest X_CHUNK writes the most rows.
+MIN_X_CHUNK = min(config.kwargs["X_CHUNK"] for config in laplacian_configs())
 
 
 @triton.jit
 def periodic(i, n):
-    # Offsets stay within one period (|m| <= 4 < n), so a single correction suffices.
+    # Offsets stay within one period (|shift| <= 4 < N and 4 * K < N * K), so a single correction suffices.
     i = tl.where(i >= n, i - n, i)
     return tl.where(i < 0, i + n, i)
 
 
 @triton.autotune(configs=laplacian_configs(), key=["N", "K"], cache_results=True)
 @triton.jit
-def laplacian_kernel(psi, lap, coeff, inv_h2, N, K, BLOCK_Z: tl.constexpr, BLOCK_K: tl.constexpr):
-    """coeff = [3 * c0, w1, w2, w3, w4] in psi's dtype; inv_h2 is a one-element tensor."""
-    zt = tl.program_id(0)
+def laplacian_kernel(psi, lap, partial, coeff, N, K, BLOCK: tl.constexpr, X_CHUNK: tl.constexpr):
+    """coeff = [3 * c0, w1, w2, w3, w4, inv_h2] in psi's dtype.
+
+    partial[xc * N + y, s] receives -1/2 * sum over this program's x planes of psi * lap at flat position s."""
+    st = tl.program_id(0)
     y = tl.program_id(1)
-    x = tl.program_id(2)
-    z = zt * BLOCK_Z + tl.arange(0, BLOCK_Z)
-    k = tl.arange(0, BLOCK_K)
-    mask = (z < N)[:, None] & (k < K)[None, :]
-    kk = k[None, :]
-    row = N * K  # stride of y
-    plane = N * row  # stride of x
+    xc = tl.program_id(2)
+    L = N * K  # stride of y
+    plane = N.to(tl.int64) * L  # stride of x (N^3 * K may exceed 2^31)
+    s = st * BLOCK + tl.arange(0, BLOCK)
+    mask = s < L
 
-    base = x.to(tl.int64) * plane + y * row
-    centre = tl.load(psi + base + z[:, None] * K + kk, mask=mask, other=0.0)
-    acc = tl.load(coeff) * centre
-    # Same association as the reference: axis 0, 1, 2; radius 1..4; acc + w * (psi[i - m] + psi[i + m]).
-    for m in tl.static_range(1, 5):
-        w = tl.load(coeff + m)
-        lo = periodic(x - m, N).to(tl.int64) * plane + y * row + z[:, None] * K + kk
-        hi = periodic(x + m, N).to(tl.int64) * plane + y * row + z[:, None] * K + kk
-        acc = acc + w * (tl.load(psi + lo, mask=mask, other=0.0) + tl.load(psi + hi, mask=mask, other=0.0))
-    for m in tl.static_range(1, 5):
-        w = tl.load(coeff + m)
-        lo = x.to(tl.int64) * plane + periodic(y - m, N) * row + z[:, None] * K + kk
-        hi = x.to(tl.int64) * plane + periodic(y + m, N) * row + z[:, None] * K + kk
-        acc = acc + w * (tl.load(psi + lo, mask=mask, other=0.0) + tl.load(psi + hi, mask=mask, other=0.0))
-    for m in tl.static_range(1, 5):
-        w = tl.load(coeff + m)
-        lo = base + periodic(z - m, N)[:, None] * K + kk
-        hi = base + periodic(z + m, N)[:, None] * K + kk
-        acc = acc + w * (tl.load(psi + lo, mask=mask, other=0.0) + tl.load(psi + hi, mask=mask, other=0.0))
-    tl.store(lap + base + z[:, None] * K + kk, tl.load(inv_h2) * acc, mask=mask)
+    c0 = tl.load(coeff)
+    w1 = tl.load(coeff + 1)
+    w2 = tl.load(coeff + 2)
+    w3 = tl.load(coeff + 3)
+    w4 = tl.load(coeff + 4)
+    scale = tl.load(coeff + 5)
+
+    zm1 = periodic(s - K, L)
+    zp1 = periodic(s + K, L)
+    zm2 = periodic(s - 2 * K, L)
+    zp2 = periodic(s + 2 * K, L)
+    zm3 = periodic(s - 3 * K, L)
+    zp3 = periodic(s + 3 * K, L)
+    zm4 = periodic(s - 4 * K, L)
+    zp4 = periodic(s + 4 * K, L)
+
+    column = psi + y * L + s
+    x0 = xc * X_CHUNK
+    # Register queue: q0 = x - 4, ..., q4 = x (centre), ..., q8 = x + 4.
+    q0 = tl.load(column + periodic(x0 - 4, N) * plane, mask=mask, other=0.0)
+    q1 = tl.load(column + periodic(x0 - 3, N) * plane, mask=mask, other=0.0)
+    q2 = tl.load(column + periodic(x0 - 2, N) * plane, mask=mask, other=0.0)
+    q3 = tl.load(column + periodic(x0 - 1, N) * plane, mask=mask, other=0.0)
+    q4 = tl.load(column + x0 * plane, mask=mask, other=0.0)
+    q5 = tl.load(column + periodic(x0 + 1, N) * plane, mask=mask, other=0.0)
+    q6 = tl.load(column + periodic(x0 + 2, N) * plane, mask=mask, other=0.0)
+    q7 = tl.load(column + periodic(x0 + 3, N) * plane, mask=mask, other=0.0)
+    energy = tl.zeros((BLOCK,), dtype=q4.dtype)
+    for x in range(x0, tl.minimum(x0 + X_CHUNK, N)):
+        q8 = tl.load(column + periodic(x + 4, N) * plane, mask=mask, other=0.0)
+        here = psi + x * plane
+        # Same association as the reference: axis 0, 1, 2; radius 1..4; acc + w * (psi[i - m] + psi[i + m]).
+        acc = c0 * q4
+        acc = acc + w1 * (q3 + q5)
+        acc = acc + w2 * (q2 + q6)
+        acc = acc + w3 * (q1 + q7)
+        acc = acc + w4 * (q0 + q8)
+        yb = here + s
+        acc = acc + w1 * (
+            tl.load(yb + periodic(y - 1, N) * L, mask=mask, other=0.0)
+            + tl.load(yb + periodic(y + 1, N) * L, mask=mask, other=0.0)
+        )
+        acc = acc + w2 * (
+            tl.load(yb + periodic(y - 2, N) * L, mask=mask, other=0.0)
+            + tl.load(yb + periodic(y + 2, N) * L, mask=mask, other=0.0)
+        )
+        acc = acc + w3 * (
+            tl.load(yb + periodic(y - 3, N) * L, mask=mask, other=0.0)
+            + tl.load(yb + periodic(y + 3, N) * L, mask=mask, other=0.0)
+        )
+        acc = acc + w4 * (
+            tl.load(yb + periodic(y - 4, N) * L, mask=mask, other=0.0)
+            + tl.load(yb + periodic(y + 4, N) * L, mask=mask, other=0.0)
+        )
+        zb = here + y * L
+        acc = acc + w1 * (tl.load(zb + zm1, mask=mask, other=0.0) + tl.load(zb + zp1, mask=mask, other=0.0))
+        acc = acc + w2 * (tl.load(zb + zm2, mask=mask, other=0.0) + tl.load(zb + zp2, mask=mask, other=0.0))
+        acc = acc + w3 * (tl.load(zb + zm3, mask=mask, other=0.0) + tl.load(zb + zp3, mask=mask, other=0.0))
+        acc = acc + w4 * (tl.load(zb + zm4, mask=mask, other=0.0) + tl.load(zb + zp4, mask=mask, other=0.0))
+        out = scale * acc
+        tl.store(lap + x * plane + y * L + s, out, mask=mask)
+        energy += q4 * out
+        q0, q1, q2, q3, q4, q5, q6, q7 = q1, q2, q3, q4, q5, q6, q7, q8
+    row = (xc * N + y).to(tl.int64)
+    # -1/2 is a power of two, so scaling the partial sums here rounds exactly as scaling ekin would.
+    tl.store(partial + row * L + s, -0.5 * energy, mask=mask)
 
 
-@triton.autotune(configs=ekin_configs(), key=["S", "K"], cache_results=True)
-@triton.jit
-def ekin_partial_kernel(psi, lap, partial, S, K, BLOCK_S: tl.constexpr, BLOCK_K: tl.constexpr):
-    """partial[p, j] = sum over the p-th block of BLOCK_S grid points of psi[:, j] * lap[:, j]."""
-    p = tl.program_id(0)
-    s = p * BLOCK_S + tl.arange(0, BLOCK_S)
-    k = tl.arange(0, BLOCK_K)
-    mask = (s < S)[:, None] & (k < K)[None, :]
-    offs = s.to(tl.int64)[:, None] * K + k[None, :]
-    a = tl.load(psi + offs, mask=mask, other=0.0)
-    b = tl.load(lap + offs, mask=mask, other=0.0)
-    tl.store(partial + p * K + k, tl.sum(a * b, axis=0), mask=k < K)
+# The last coefficient tensor, keyed by (inv_h2, dtype, device): building it costs a host-to-device copy per call.
+COEFFICIENTS: dict[tuple[float, torch.dtype, torch.device], torch.Tensor] = {}
+
+
+def coefficients(inv_h2, dtype, device):
+    """[3 * c0, w1, w2, w3, w4, inv_h2] with the reference's literals (_C0, _CW), stored in ``dtype``."""
+    key = (float(inv_h2), dtype, device)
+    if key not in COEFFICIENTS:
+        COEFFICIENTS.clear()
+        COEFFICIENTS[key] = torch.tensor(
+            [3.0 * (-205.0 / 72.0), 8.0 / 5.0, -1.0 / 5.0, 8.0 / 315.0, -1.0 / 560.0, float(inv_h2)],
+            dtype=dtype,
+            device=device,
+        )
+    return COEFFICIENTS[key]
 
 
 def kernel(inv_h2, psi, lap, ekin):
     N = int(psi.shape[0])
     K = int(psi.shape[3])
-    S = N * N * N
-    block_k = triton.next_power_of_2(K)
-    # Same literals as the reference (_C0, _CW), stored in psi's dtype.
-    coeff = torch.tensor(
-        [3.0 * (-205.0 / 72.0), 8.0 / 5.0, -1.0 / 5.0, 8.0 / 315.0, -1.0 / 560.0],
-        dtype=psi.dtype,
-        device=psi.device,
-    )
-    inv = torch.tensor([float(inv_h2)], dtype=psi.dtype, device=psi.device)
+    coeff = coefficients(inv_h2, psi.dtype, psi.device)
+    # Rows are overwritten, never accumulated, so autotune trials need no restore.
+    partial = torch.empty((N * triton.cdiv(N, MIN_X_CHUNK), N * K), dtype=psi.dtype, device=psi.device)
+    rows = {}
 
-    laplacian_kernel[lambda meta: (triton.cdiv(N, meta["BLOCK_Z"]), N, N)](psi, lap, coeff, inv, N, K, BLOCK_K=block_k)
+    def grid(meta):
+        x_chunks = triton.cdiv(N, meta["X_CHUNK"])
+        rows["used"] = N * x_chunks
+        return (triton.cdiv(N * K, meta["BLOCK"]), N, x_chunks)
 
-    # The partial buffer is sized for the smallest BLOCK_S so every config fits.
-    partial = torch.empty((triton.cdiv(S, 128), K), dtype=psi.dtype, device=psi.device)
-    blocks = {}
-
-    def ekin_grid(meta):
-        blocks["n"] = triton.cdiv(S, meta["BLOCK_S"])
-        return (blocks["n"],)
-
-    ekin_partial_kernel[ekin_grid](psi, lap, partial, S, K, BLOCK_K=block_k)
-    ekin.copy_(-0.5 * partial[: blocks["n"]].sum(dim=0))
+    laplacian_kernel[grid](psi, lap, partial, coeff, N, K)
+    # Each row holds (z, k) pairs with k innermost: viewing it as (rows * N, K) leaves one sum over all but k.
+    torch.sum(partial[: rows["used"]].view(-1, K), dim=0, out=ekin)
