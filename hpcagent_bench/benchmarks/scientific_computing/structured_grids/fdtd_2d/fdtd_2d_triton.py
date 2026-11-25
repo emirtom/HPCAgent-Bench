@@ -5,14 +5,17 @@
 # updates ey (rows 1 ..) and ex (columns 1 ..) from the old hz, then hz (all but the last row and column) from the
 # new ex and ey.
 #
-# Two launches per step: the E launch writes ey and ex in place (each reads only hz besides its own element), the
-# H launch then writes hz in place (it reads only ex and ey besides its own element). Each program owns a BI x BJ
-# tile (j contiguous).
+# One fused launch per step: each program owns a BI x BJ tile (j contiguous) and computes the new ey and ex of its
+# tile, the new ex one column east and the new ey one row south (recomputed from the old fields, as the neighbour
+# tile computes them), and from those the new hz. A step thus reads each field once and writes it once, instead of
+# the five reads and three writes of separate E and H launches, and takes one launch instead of two. Neighbour
+# tiles still read the old fields, so the steps ping-pong between the arguments and three temporaries; an even
+# number of steps ends in the arguments, and an odd TMAX runs its first step as the in-place E and H launches.
 #
 # Precision (hpcagent_bench/docs/numerical_validation.md): fp64 and fp32 compute in themselves; fp16, bf16 and
 # both fp8 formats load into fp32, compute there and round to the storage format when a field is written. The
 # Courant coefficients reach the kernels in a tensor of the accumulation dtype, so an fp64 run keeps them in fp64.
-"""2-D FDTD (Yee) time stepping, one E launch and one H launch per step."""
+"""2-D FDTD (Yee) time stepping, one fused E and H launch per step."""
 
 import torch
 import triton
@@ -68,6 +71,43 @@ def h_step(ex, ey, hz, coeff, NX, NY, ACC: tl.constexpr, BI: tl.constexpr, BJ: t
     tl.store(hz + offset, h.to(hz.dtype.element_ty), mask=mask)
 
 
+@triton.autotune(configs=fdtd_configs(), key=["NX", "NY"], cache_results=True)
+@triton.jit(do_not_specialize=["t"])
+def fused_step(
+    ex0, ey0, hz0, ex1, ey1, hz1, fict, coeff, t, NX, NY, ACC: tl.constexpr, BI: tl.constexpr, BJ: tl.constexpr
+):
+    """(ex1, ey1, hz1) = one step from (ex0, ey0, hz0), written out of place."""
+    i = tl.program_id(1) * BI + tl.arange(0, BI)
+    j = tl.program_id(0) * BJ + tl.arange(0, BJ)
+    row = i[:, None]
+    col = j[None, :]
+    inside = (row < NX) & (col < NY)
+    h_mask = (row < NX - 1) & (col < NY - 1)
+    offset = row.to(tl.int64) * NY + col
+    cy = tl.load(coeff)
+    cx = tl.load(coeff + 1)
+    ch = tl.load(coeff + 2)
+    source = tl.load(fict + t).to(ACC)
+    h = tl.load(hz0 + offset, mask=inside).to(ACC)
+    h_north = tl.load(hz0 + offset - NY, mask=inside & (row > 0)).to(ACC)
+    h_west = tl.load(hz0 + offset - 1, mask=inside & (col > 0)).to(ACC)
+    h_south = tl.load(hz0 + offset + NY, mask=h_mask).to(ACC)
+    h_east = tl.load(hz0 + offset + 1, mask=h_mask).to(ACC)
+    # The new E fields, rounded to the storage format as the reference stores them.
+    e_y = tl.load(ey0 + offset, mask=inside).to(ACC)
+    e_y = tl.where(row > 0, (e_y - cy * (h - h_north)).to(ey1.dtype.element_ty).to(ACC), source)
+    e_x = tl.load(ex0 + offset, mask=inside).to(ACC)
+    e_x = tl.where(col > 0, (e_x - cx * (h - h_west)).to(ex1.dtype.element_ty).to(ACC), e_x)
+    e_y_south = tl.load(ey0 + offset + NY, mask=h_mask).to(ACC)
+    e_y_south = (e_y_south - cy * (h_south - h)).to(ey1.dtype.element_ty).to(ACC)
+    e_x_east = tl.load(ex0 + offset + 1, mask=h_mask).to(ACC)
+    e_x_east = (e_x_east - cx * (h_east - h)).to(ex1.dtype.element_ty).to(ACC)
+    h_new = tl.where(h_mask, h - ch * (e_x_east - e_x + e_y_south - e_y), h)
+    tl.store(ey1 + offset, e_y.to(ey1.dtype.element_ty), mask=inside)
+    tl.store(ex1 + offset, e_x.to(ex1.dtype.element_ty), mask=inside)
+    tl.store(hz1 + offset, h_new.to(hz1.dtype.element_ty), mask=inside)
+
+
 # The last coefficient tensor, keyed by (courants, dtype, device): building it costs a host-to-device copy per call.
 COEFFICIENTS: dict[tuple[float, float, float, torch.dtype, torch.device], torch.Tensor] = {}
 
@@ -89,6 +129,17 @@ def kernel(TMAX, ex, ey, hz, fict, ey_courant=0.5, ex_courant=0.5, hz_courant=0.
     def grid(meta):
         return (triton.cdiv(NY, meta["BJ"]), triton.cdiv(NX, meta["BI"]))
 
-    for t in range(int(TMAX)):
-        e_step[grid](ex, ey, hz, fict, coeff, t, NX, NY, ACC=ACC)
+    steps = int(TMAX)
+    first = 0
+    if steps % 2:
+        e_step[grid](ex, ey, hz, fict, coeff, 0, NX, NY, ACC=ACC)
         h_step[grid](ex, ey, hz, coeff, NX, NY, ACC=ACC)
+        first = 1
+    if first == steps:
+        return
+    temps = torch.empty((3, NX, NY), dtype=ex.dtype, device=ex.device)
+    fields = ((ex, ey, hz), (temps[0], temps[1], temps[2]))
+    # A fused launch reads one set and writes the other, so its autotune trials need no restore.
+    for t in range(first, steps):
+        source, target = fields[(t - first) % 2], fields[(t - first + 1) % 2]
+        fused_step[grid](*source, *target, fict, coeff, t, NX, NY, ACC=ACC)
