@@ -182,7 +182,11 @@ scratchpad/
 # --- Machine-local config and secrets: never committed ---
 .env
 hpcagent_bench/harness/hidden_tests/secret_seeds.json
-.claude/
+# Root .claude/ is machine-local (worktrees, local settings) except the agent definitions, which are versioned;
+# a .claude/ anywhere deeper stays ignored, but for the transcript fixtures.
+/.claude/*
+!/.claude/agents/
+*/**/.claude/
 !tests/fixtures/transcripts/**/.claude/
 helpers/scripts/cscs/env.toml
 *.pem
