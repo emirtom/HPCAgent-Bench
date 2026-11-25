@@ -9,17 +9,19 @@
 # side, and an IC-deep chunk of i planes with STAGES planes of halo above and below. It marches along i: step p
 # loads plane p of the A state (stage 0), and stage s = 1 .. STAGES computes its plane p - s from the three planes
 # p - s - 1 .. p - s + 1 of stage s - 1. Each stage keeps its last three planes in a ring of the program's scratch
-# (L1/L2-resident), with a CTA barrier after every stage. Odd stages are B states and take B's boundary values from
-# B, even stages are A states and keep the A boundary of stage s - 2. The valid (j, k) region shrinks by one point
-# per side and stage, so the middle (BJ - 2 HALO) x (BK - 2 HALO) points of the last stage are exact and are
-# written. Launches ping-pong between A and temporaries (a launch must not overwrite a halo another program still
-# reads), the last one writes A and, from its last B stage, B's interior. 20 iterations take 10 launches instead
-# of 40.
+# (a global buffer; reads hit L1/L2), with a CTA barrier after every stage. Odd stages are B states and take B's
+# boundary values from B, even stages are A states and keep the A boundary of stage s - 2. The valid (j, k) region
+# shrinks by one point per side and stage, so the middle (BJ - 2 HALO) x (BK - 2 HALO) points of the last stage
+# are exact and are written. Launches ping-pong between A and temporaries (a launch must not overwrite a halo
+# another program still reads), the last one writes A and, from its last B stage, B's interior. 20 iterations
+# take 10 launches instead of 40.
 #
 # Precision (hpcagent_bench/docs/numerical_validation.md): fp64 and fp32 compute in themselves; fp16, bf16 and
 # both fp8 formats load into fp32 and compute there. Every half-step's value is rounded to the storage format in
 # registers, as the reference rounds it when it stores the array, so blocking does not change the result. alpha
-# reaches the kernel in a one-element tensor of the accumulation dtype, so an fp64 run keeps it in fp64.
+# is a compile-time constant (ALPHA): a constexpr float in arithmetic takes the tensor operand's type with the
+# Python value, so an fp64 run multiplies by the exact double (a float passed as a runtime argument would arrive
+# as fp32). Nothing is kept between calls.
 """Temporally blocked (2.5-D wavefront) explicit 7-point heat equation in three dimensions."""
 
 import torch
@@ -47,8 +49,8 @@ def blocked_steps(
     dst,
     B,
     scratch,
-    alpha_ptr,
     N,
+    ALPHA: tl.constexpr,
     STAGES: tl.constexpr,
     WRITE_B: tl.constexpr,
     ACC: tl.constexpr,
@@ -61,7 +63,6 @@ def blocked_steps(
     IJ: tl.constexpr = BJ - 2 * HALO
     IK: tl.constexpr = BK - 2 * HALO
     TILE: tl.constexpr = BJ * BK
-    alpha = tl.load(alpha_ptr)
     r = tl.arange(0, BJ)
     c = tl.arange(0, BK)
     j = tl.program_id(1) * IJ - HALO + r
@@ -108,9 +109,9 @@ def blocked_steps(
                     east = tl.load(here + 1, mask=has_east, other=0.0)
                     two_c = 2.0 * centre
                     value = (
-                        alpha * (up - two_c + down)
-                        + alpha * (south - two_c + north)
-                        + alpha * (east - two_c + west)
+                        ALPHA * (up - two_c + down)
+                        + ALPHA * (south - two_c + north)
+                        + ALPHA * (east - two_c + west)
                         + centre
                     )
                     value = value.to(dst.dtype.element_ty).to(ACC)
@@ -129,25 +130,12 @@ def blocked_steps(
             tl.debug_barrier()
 
 
-# The last alpha tensor, keyed by (alpha, dtype, device): building it costs a host-to-device copy per call.
-ALPHA: dict[tuple[float, torch.dtype, torch.device], torch.Tensor] = {}
-
-
-def alpha_tensor(alpha, dtype, device):
-    key = (float(alpha), dtype, device)
-    if key not in ALPHA:
-        ALPHA.clear()
-        ALPHA[key] = torch.tensor([float(alpha)], dtype=dtype, device=device)
-    return ALPHA[key]
-
-
 def kernel(TSTEPS, A, B, alpha=0.125):
     N = int(A.shape[0])
     iterations = int(TSTEPS)
     if N < 3 or iterations < 1:
         return
     acc = torch.float64 if A.dtype == torch.float64 else torch.float32
-    alpha_t = alpha_tensor(alpha, acc, A.device)
     ACC = tl.float64 if acc == torch.float64 else tl.float32
     # Launches k = 0 .. L - 1 read X_k and write X_{k + 1}, X_0 = X_L = A, the rest alternating temporaries; at
     # least two launches, so no launch reads and writes A. One iteration splits no further: it starts from a copy.
@@ -178,8 +166,8 @@ def kernel(TSTEPS, A, B, alpha=0.125):
             buffers[k + 1],
             B,
             scratch,
-            alpha_t,
             N,
+            ALPHA=float(alpha),
             STAGES=2 * steps,
             WRITE_B=k == launches - 1,
             ACC=ACC,
