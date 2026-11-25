@@ -8,7 +8,9 @@
 # state with a halo of HALO = 2 * STEPS on each side, then runs the half-steps on the whole tile in registers;
 # the valid region shrinks by one point per half-step, so after STEPS iterations the middle BLOCK - 2 * HALO
 # points are exact and are written. Neighbours are exchanged through the program's own two scratch rows (one for
-# the A state, one for the B state, L1-resident) between CTA barriers; two rows need one barrier per half-step.
+# the A state, one for the B state) between CTA barriers; two rows need one barrier per half-step. The scratch is
+# an ordinary global buffer (2 values per grid point in all): reads hit L1/L2, but at M (52 MB of scratch) it does
+# not fit in L2 and its writes go back to DRAM.
 # B's end values never change, so the programs read them from B. Launches ping-pong between A and temporaries
 # (a launch must not overwrite a halo another program still reads), the last one writes A and, for the final
 # half-step, B. A 124-iteration run takes 4 launches instead of 248.
