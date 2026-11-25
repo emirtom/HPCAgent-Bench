@@ -8,8 +8,9 @@
 # (j contiguous) with a halo of HALO = 2 * STEPS on every side, then runs the half-steps on the whole tile in
 # registers; the valid region shrinks by one point per side and half-step, so after STEPS iterations the middle
 # (BH - 2 HALO) x (BW - 2 HALO) points are exact and are written. Neighbours are exchanged through the program's
-# own two scratch tiles (one for the A state, one for the B state, L1-resident) between CTA barriers; two tiles
-# need one barrier per half-step. B's boundary never changes, so the programs read it from B. Launches ping-pong
+# own two scratch tiles (one for the A state, one for the B state) between CTA barriers; two tiles
+# need one barrier per half-step. The tiles are ordinary global memory (about 13 MB at M): reads hit L1/L2, but
+# they are not guaranteed to stay there. B's boundary never changes, so the programs read it from B. Launches ping-pong
 # between A and temporaries (a launch must not overwrite a halo another program still reads), and the last one
 # writes A and, for the final half-step, B's interior. 50 iterations take 13 launches instead of 100.
 #
