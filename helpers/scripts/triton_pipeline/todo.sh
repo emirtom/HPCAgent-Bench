@@ -2,8 +2,10 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# The scientific_computing kernels that still have no *_triton.py: the pool Triton batches are drawn from
-# (73 at v1.0.0). A kernel drops out once its Triton file is committed. Run from the repository root.
+# The scientific_computing kernels that still have no *_triton.py: the pool Triton batches are drawn from. v1.0.0's
+# shipped Triton baselines were removed on this branch (the supervisor asked for our own everywhere), so the pool is
+# every kernel but the ones we wrote. A kernel drops out once its Triton file is committed. Run from the repository
+# root.
 #
 #   todo.sh            "<dwarf> <kernel>" per line, sorted by dwarf
 #   todo.sh --count    the number of kernels left, per dwarf and in total

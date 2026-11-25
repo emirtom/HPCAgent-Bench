@@ -133,11 +133,13 @@ def test_every_exception_is_still_needed() -> None:
 
 
 def test_the_converted_baselines_declare_cupy() -> None:
+    # laplacian_stencil_3d folds its partial rows with cupy.sum (v1.0.0's quatrex_rgf example was removed with the
+    # other shipped Triton baselines on this branch).
     files = {path.name: path for path in triton_files()}
-    uses = uses_of(files["quatrex_rgf_triton.py"].read_text(encoding="utf-8"))
-    assert uses.cupy == {"cupy.linalg.inv"}
+    uses = uses_of(files["laplacian_stencil_3d_triton.py"].read_text(encoding="utf-8"))
+    assert uses.cupy == {"cupy.sum"}
     assert uses.library is not None
-    assert uses.library.startswith("Library: cupy.linalg.inv for ")
+    assert uses.library.startswith("Library: cupy.sum for ")
 
 
 def test_each_refused_spelling_is_caught() -> None:

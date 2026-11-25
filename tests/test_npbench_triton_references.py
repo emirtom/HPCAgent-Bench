@@ -5,6 +5,7 @@ manifest's parameter names, and (on a GPU) the numbers match the compiled refere
 fusion-sensitive ones."""
 
 import ast
+import pathlib
 
 import pytest
 
@@ -43,10 +44,18 @@ RECURRENCE_ON_ITS_OWN_OUTPUT = {
 AMPLIFIES_ULPS = ("mandelbrot_escape_count", "mandelbrot_escape_stamp", "vadv")
 
 
-def triton_source(kernel: str) -> ast.Module:
+def triton_path(kernel: str) -> pathlib.Path:
     spec = KERNELS.specs()[KERNELS.select_keys(kernel)[0]]
-    path = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_triton.py"
-    return ast.parse(path.read_text())
+    return paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_triton.py"
+
+
+def triton_source(kernel: str) -> ast.Module:
+    return ast.parse(triton_path(kernel).read_text())
+
+
+#: The npbench kernels that have a Triton reference in this tree. v1.0.0's shipped ones were removed on this branch
+#: so ours are written without them; each check covers a kernel again once its Triton file is back.
+TRITON_KERNELS = tuple(kernel for kernel in NPBENCH_KERNELS if triton_path(kernel).is_file())
 
 
 def is_call(node: ast.AST, name: str) -> bool:
@@ -109,7 +118,7 @@ def updated_in_place(function: ast.FunctionDef) -> set[str]:
     return stored & loaded
 
 
-@pytest.mark.parametrize("kernel", NPBENCH_KERNELS)
+@pytest.mark.parametrize("kernel", TRITON_KERNELS)
 def test_autotuned_kernels_restore_the_buffers_they_update(kernel: str) -> None:
     missing = {}
     for function in (n for n in triton_source(kernel).body if isinstance(n, ast.FunctionDef)):
@@ -139,7 +148,7 @@ def test_the_check_sees_an_unrestored_accumulator() -> None:
     assert restored_by(fixed) == {"out_ptr"}
 
 
-@pytest.mark.parametrize("kernel", NPBENCH_KERNELS)
+@pytest.mark.parametrize("kernel", TRITON_KERNELS)
 def test_the_entry_binds_by_the_manifest_names(kernel: str) -> None:
     bench = Benchmark(kernel)
     entry = next(
@@ -152,6 +161,8 @@ def test_the_entry_binds_by_the_manifest_names(kernel: str) -> None:
 def test_compute_tries_its_largest_blocks_first() -> None:
     """The optimizer budget keeps the first few configs, and at the M preset a block of 8 over its 87M elements needs
     more programs than the launch grid allows, so the kept configs must be the large blocks."""
+    if "compute" not in TRITON_KERNELS:
+        pytest.skip("compute has no Triton reference in this tree yet")
     function = next(
         n for n in triton_source("compute").body if isinstance(n, ast.FunctionDef) and n.name == "get_configs"
     )
@@ -169,7 +180,9 @@ def test_compute_tries_its_largest_blocks_first() -> None:
 # a Triton run hit hipErrorIllegalAddress and every later GPU test on that device failed (758921).
 @pytest.mark.xdist_group(name="triton_gpu")
 @pytest.mark.parametrize(
-    ("kernel", "preset"), [(kernel, "S") for kernel in NPBENCH_KERNELS] + [(kernel, "M") for kernel in AMPLIFIES_ULPS]
+    ("kernel", "preset"),
+    [(kernel, "S") for kernel in TRITON_KERNELS]
+    + [(kernel, "M") for kernel in AMPLIFIES_ULPS if kernel in TRITON_KERNELS],
 )
 def test_triton_reference_matches_numpy(kernel: str, preset: str) -> None:
     torch = import_or_skip("torch")
@@ -191,10 +204,10 @@ def test_triton_reference_matches_numpy(kernel: str, preset: str) -> None:
 if __name__ == "__main__":
     test_the_check_sees_an_unrestored_accumulator()
     test_compute_tries_its_largest_blocks_first()
-    for name in NPBENCH_KERNELS:
+    for name in TRITON_KERNELS:
         test_autotuned_kernels_restore_the_buffers_they_update(name)
         test_the_entry_binds_by_the_manifest_names(name)
         test_triton_reference_matches_numpy(name, "S")
-    for name in AMPLIFIES_ULPS:
+    for name in (kernel for kernel in AMPLIFIES_ULPS if kernel in TRITON_KERNELS):
         test_triton_reference_matches_numpy(name, "M")
     test_a_masked_load_folded_by_a_sum_names_its_other()
