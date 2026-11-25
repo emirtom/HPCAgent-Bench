@@ -11,6 +11,8 @@
 # still sums its taps in the reference's order (di, then dj, then dk). Other R take the plain kernel: one output
 # plane per program, one clamped load per tap.
 #
+# N is never specialized (Triton would turn N = 1 into a constant, which has no .to()).
+#
 # Precision (hpcagent_bench/docs/numerical_validation.md): fp64 and fp32 compute and accumulate in themselves;
 # fp16, bf16 and both fp8 formats load into fp32, accumulate there and round to the storage format only when
 # out_grid is written.
@@ -46,7 +48,7 @@ def add_plane(acc, x, w_box, di: tl.constexpr, dj: tl.constexpr, dk: tl.constexp
 
 
 @triton.autotune(configs=march_configs(), key=["N"], cache_results=True)
-@triton.jit
+@triton.jit(do_not_specialize=["N"])
 def march_kernel(
     in_grid, out_grid, w_box, N, ACC: tl.constexpr, BJ: tl.constexpr, BK: tl.constexpr, I_CHUNK: tl.constexpr
 ):
@@ -83,7 +85,7 @@ def march_kernel(
 
 
 @triton.autotune(configs=plain_configs(), key=["N"], cache_results=True)
-@triton.jit
+@triton.jit(do_not_specialize=["N"])
 def plain_kernel(in_grid, out_grid, w_box, N, R: tl.constexpr, ACC: tl.constexpr, BJ: tl.constexpr, BK: tl.constexpr):
     k = tl.program_id(0) * BK + tl.arange(0, BK)
     j = tl.program_id(1) * BJ + tl.arange(0, BJ)
