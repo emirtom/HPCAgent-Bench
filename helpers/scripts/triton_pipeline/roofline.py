@@ -96,7 +96,7 @@ def report(ledger: str, kernel: str, flops_expr: str, preset: str) -> None:
     )
     print("| SHA | harness S | harness M | DRAM R+W MB | FLOP/B | ceiling GFLOP/s | kernel GFLOP/s | % ceiling |")
     print("|---|---|---|---|---|---|---|---|")
-    # Rows written before CPU rows existed carry no "framework": they are all Triton.
+    # Old ledgers also hold CPU rows (numba/cc, from a removed cpu:<P> step); rows without "framework" are Triton.
     tri = [r for r in rows if r["kind"] != "harness" or r.get("framework", "triton") == "triton"]
     for sha in shas:
         mine = [r for r in tri if r["sha"] == sha]
@@ -122,41 +122,6 @@ def report(ledger: str, kernel: str, flops_expr: str, preset: str) -> None:
             )
         else:
             print(f"| {sha[:9]} | {med('S')} | {med('M')} | - | - | - | - | - |")
-    cpu_vs_triton(rows)
-
-
-def cpu_vs_triton(rows: list[dict]) -> None:
-    """CPU baseline best-of(numba, cc) per preset (latest validated row of each) against the latest Triton median."""
-    cpu = [
-        r for r in rows if r["kind"] == "harness" and r.get("framework") in ("numba", "cc") and r["dtype"] in WORKING
-    ]
-    if not cpu:
-        print("\nCPU baseline: no cpu:<P> rows in the ledger yet.")
-        return
-    tri = [
-        r for r in rows if r["kind"] == "harness" and r.get("framework", "triton") == "triton" and r["dtype"] in WORKING
-    ]
-    print("\n| preset | numba ms | cc ms | CPU best ms (cores) | latest Triton ms (SHA) | speedup vs CPU best |")
-    print("|---|---|---|---|---|---|")
-    for p in ("S", "M"):
-        last = {
-            f: next((r for r in reversed(cpu) if r["framework"] == f and r["preset"] == p), None)
-            for f in ("numba", "cc")
-        }
-        if not any(last.values()):
-            continue
-        # numba runs --no-validate (see gpu_run.sh), so its good rows are UNVALIDATED.
-        ok = [r for r in last.values() if r and r["status"] in ("SUCCESS", "UNVALIDATED") and r["median_ms"]]
-        best = min(ok, key=lambda r: r["median_ms"]) if ok else None
-        t = next((r for r in reversed(tri) if r["preset"] == p and r["status"] == "SUCCESS" and r["median_ms"]), None)
-
-        def cell(r: dict | None) -> str:
-            return "-" if r is None else f"{r['median_ms']:.3f}" if r["median_ms"] else r["status"]
-
-        bcell = f"{best['median_ms']:.3f} {best['framework']} ({best.get('cores', '?')})" if best else "-"
-        tcell = f"{t['median_ms']:.3f} ({t['sha'][:9]})" if t else "-"
-        sp = f"{best['median_ms'] / t['median_ms']:.2f}x" if best and t else "-"
-        print(f"| {p} | {cell(last['numba'])} | {cell(last['cc'])} | {bcell} | {tcell} | {sp} |")
 
 
 if __name__ == "__main__":

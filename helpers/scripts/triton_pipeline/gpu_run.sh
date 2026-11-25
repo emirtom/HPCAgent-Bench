@@ -14,9 +14,6 @@
 #                        the CPU reference on the allocation's 3 cores. It does NOT fit a 5-minute allocation for
 #                        most kernels: run it once per final SHA in a long allocation (-t 30, STEP_TIMEOUT=1500).
 #   preset:<P>[:<dtype>] any harness preset (dtype defaults to fp32-if-allowed), e.g. preset:M, preset:S:bf16
-#   cpu:<P>              a quick CPU sanity check, best-of(numba, c): harness preset P, once with -f numba and once
-#                        with -f cc, on this allocation's 3 cores. NOT the reported baseline: that is numba on one
-#                        Euler CPU socket via examples/sc_triton/cpu_baseline.sbatch
 #   probe:<P>            probe.py timing at preset P (after JIT and autotune), CUDA events, median of 20
 #   ncu:<P>              probe.py under Nsight Compute: DRAM read/write bytes and kernel time of one call
 #
@@ -86,14 +83,6 @@ for step in "$@"; do
     S) harness triton S "$DT" -r 3 ;;
     default) harness triton fuzzed "$DT" ;;
     preset:*) IFS=: read -r _ p d <<<"$step"; harness triton "$p" "${d:-$DT}" ;;
-    cpu:*)
-      # Numba runs unvalidated with a private cache: with the seal off, validation loads the numba reference under
-      # the alias hpcagent_bench_agent_submission and cache=True stores it under that name, so the timed load then
-      # fails with ModuleNotFoundError. It is the reference itself, so there is nothing to validate it against.
-      ncache=$(mktemp -d)
-      NUMBA_CACHE_DIR=$ncache harness numba "${step#cpu:}" "$DT" --no-validate
-      rm -rf "$ncache"
-      harness cc "${step#cpu:}" "$DT" ;;
     probe:*) $PY "$HERE/probe.py" "$KERNEL" "${step#probe:}" --dtype "$DT" --sha "$EXPECT" ;;
     ncu:*)
       # GPU's own clocks, caches flushed before each kernel: one probe call after JIT + autotune.
@@ -106,5 +95,10 @@ for step in "$@"; do
 done
 }
 # Every RESULT line is appended to the kernel's ledger (one JSON object per line) for roofline.py report.
-# sed -u writes each line as it arrives, so a step killed by the Slurm time limit still leaves earlier rows.
-run_steps "$@" 2>&1 | tee >(grep --line-buffered '^RESULT ' | sed -u 's/^RESULT //' >>"$LEDGER")
+# Each row is written as it arrives, so a step killed by the Slurm time limit still leaves earlier rows. The write
+# runs in the pipeline itself, not in a tee >(...) process substitution: the script didn't wait for that, so srun
+# could end the step before the last (large, many-launch ncu) row landed.
+run_steps "$@" 2>&1 | while IFS= read -r line || [ -n "$line" ]; do
+  printf '%s\n' "$line"
+  [[ $line == "RESULT "* ]] && printf '%s\n' "${line#RESULT }" >>"$LEDGER"
+done
