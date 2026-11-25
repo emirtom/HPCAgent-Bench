@@ -150,22 +150,14 @@ def accumulation_dtype(dtype):
     return torch.float64 if dtype == torch.float64 else torch.float32
 
 
-# The last coefficient tensor, keyed by (inv_h2, dtype, device): building it costs a host-to-device copy per call.
-COEFFICIENTS: dict[tuple[float, torch.dtype, torch.device], torch.Tensor] = {}
-
-
 def coefficients(inv_h2, dtype, device):
     """[3 * c0, w1, w2, w3, w4, inv_h2] with the reference's literals (_C0, _CW), stored in ``dtype``, the
-    accumulation dtype."""
-    key = (float(inv_h2), dtype, device)
-    if key not in COEFFICIENTS:
-        COEFFICIENTS.clear()
-        COEFFICIENTS[key] = torch.tensor(
-            [3.0 * (-205.0 / 72.0), 8.0 / 5.0, -1.0 / 5.0, 8.0 / 315.0, -1.0 / 560.0, float(inv_h2)],
-            dtype=dtype,
-            device=device,
-        )
-    return COEFFICIENTS[key]
+    accumulation dtype. Built on every call (one small host-to-device copy): nothing is kept between calls."""
+    return torch.tensor(
+        [3.0 * (-205.0 / 72.0), 8.0 / 5.0, -1.0 / 5.0, 8.0 / 315.0, -1.0 / 560.0, float(inv_h2)],
+        dtype=dtype,
+        device=device,
+    )
 
 
 def kernel(inv_h2, psi, lap, ekin):

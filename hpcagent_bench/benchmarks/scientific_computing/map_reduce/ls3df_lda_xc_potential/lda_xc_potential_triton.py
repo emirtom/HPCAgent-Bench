@@ -4,8 +4,6 @@
 """LDA XC potential and energy in one fused pass: each program streams a strided set of tiles, writes vxc and
 keeps a per-lane energy accumulator, then adds one partial into exc (one atomic per program)."""
 
-import functools
-
 import torch
 import triton
 import triton.language as tl
@@ -65,7 +63,6 @@ def lda_xc_kernel(rho, vxc, exc, n, DVOL: tl.float64, COMPUTE: tl.constexpr, BLO
     tl.atomic_add(exc, (tl.sum(energy, axis=0) * DVOL).to(exc.dtype.element_ty), sem="relaxed")
 
 
-@functools.cache
 def sm_count(device_index: int) -> int:
     return torch.cuda.get_device_properties(device_index).multi_processor_count
 
