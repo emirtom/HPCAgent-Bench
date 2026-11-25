@@ -15,7 +15,12 @@
 #                        most kernels: run it once per final SHA in a long allocation (-t 30, STEP_TIMEOUT=1500).
 #   preset:<P>[:<dtype>] any harness preset (dtype defaults to fp32-if-allowed), e.g. preset:M, preset:S:bf16
 #   probe:<P>            probe.py timing at preset P (after JIT and autotune), CUDA events, median of 20
-#   ncu:<P>              probe.py under Nsight Compute: DRAM read/write bytes and kernel time of one call
+#   ncu:<P>              probe.py under Nsight Compute, one call: executed FLOPs, DRAM and L2 bytes, kernel time
+#                        (the hardware roofline; roofline.py report places each version on it)
+#   ncu-full:<P>         probe.py under ncu --set full (first launch of each distinct kernel, at most 8): saves the
+#                        report to $NCU_REPORTS/<kernel>/<sha9>-<P>.ncu-repz (open it in the Nsight Compute GUI) and
+#                        prints ncu_digest.py's tuning digest: occupancy limiter, stall reasons, ncu's rules with
+#                        estimated speedups, and the Triton source lines with the most stalls
 #
 # The revision check runs first and nothing is measured unless HEAD == expected SHA, the tree is clean, the
 # kernel's _triton.py exists and the GPU is an RTX 5060 Ti. The grading sandbox is disabled for harness steps
@@ -72,8 +77,14 @@ harness() {  # harness <framework> <preset> <dtype> [extra]
 # Nsight Compute 2026.3 comes from the cluster's CUDA module (not on the compute node's default PATH).
 NCU=$(command -v ncu || { module load cuda/13.2.2 >/dev/null 2>&1; command -v ncu; } || echo /cluster/data/cuda/x86_64/13.2.2/bin/ncu)
 NCU_METRICS=gpu__time_duration.sum,dram__bytes_op_read.sum,dram__bytes_op_write.sum,dram__throughput.avg.pct_of_peak_sustained_elapsed,sm__throughput.avg.pct_of_peak_sustained_elapsed,l1tex__t_sector_hit_rate.pct,launch__registers_per_thread,sm__warps_active.avg.pct_of_peak_sustained_active
+# Hardware roofline: executed FP instructions (an FMA is 2 FLOPs), tensor-core FLOPs (sm__ops_path_* already counts
+# FLOPs) and L2 bytes. peaks.py --ncu checked that these reproduce known FLOP and byte counts on this GPU.
+NCU_METRICS=$NCU_METRICS,lts__t_bytes.sum
+for op in ffma fadd fmul dfma dadd dmul hfma hadd hmul; do NCU_METRICS=$NCU_METRICS,sm__sass_thread_inst_executed_op_${op}_pred_on.sum; done
+for src in fp16_dst_fp32 bf16_dst_fp32 fp16_dst_fp16 tf32_dst_fp32; do NCU_METRICS=$NCU_METRICS,sm__ops_path_tensor_src_${src}.sum; done
 
 DT=fp32-if-allowed
+NCU_REPORTS=/scratch/users/emuete/pipeline/ncu-reports
 LEDGER=/scratch/users/emuete/pipeline/ledger/$KERNEL.jsonl
 mkdir -p "$(dirname "$LEDGER")"
 run_steps() {
@@ -84,6 +95,20 @@ for step in "$@"; do
     default) harness triton fuzzed "$DT" ;;
     preset:*) IFS=: read -r _ p d <<<"$step"; harness triton "$p" "${d:-$DT}" ;;
     probe:*) $PY "$HERE/probe.py" "$KERNEL" "${step#probe:}" --dtype "$DT" --sha "$EXPECT" ;;
+    ncu-full:*)
+      P=${step#ncu-full:}
+      REP=$NCU_REPORTS/$KERNEL/${EXPECT:0:9}-$P
+      mkdir -p "$(dirname "$REP")"
+      echo "ncu: $NCU; --set full --import-source yes --clock-control none --cache-control all --kernel-id :::1 -c 8"
+      "$NCU" --profile-from-start off --set full --import-source yes --clock-control none --cache-control all \
+        --kernel-id :::1 -c 8 -f -o "$REP" $PY "$HERE/probe.py" "$KERNEL" "$P" --dtype "$DT" --sha "$EXPECT" --ncu 2>&1 \
+        | grep -E "^==(ERROR|WARNING)==|Profiling \"" | grep -v "nvidia-smi"
+      if [ -f "$REP.ncu-repz" ]; then
+        $PY "$HERE/ncu_digest.py" "$REP.ncu-repz" --ncu "$NCU"
+        echo "RESULT {\"kind\": \"ncu-full\", \"kernel\": \"$KERNEL\", \"sha\": \"$EXPECT\", \"preset\": \"$P\", \"report\": \"$REP.ncu-repz\"}"
+      else
+        echo "NCU ERROR: no report written"
+      fi ;;
     ncu:*)
       # GPU's own clocks, caches flushed before each kernel: one probe call after JIT + autotune.
       echo "ncu: $NCU ($("$NCU" --version | tail -1)); settings: --clock-control none --cache-control all"
