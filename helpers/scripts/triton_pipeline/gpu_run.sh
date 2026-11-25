@@ -102,8 +102,10 @@ for step in "$@"; do
       echo "ncu: $NCU; --set full --import-source yes --clock-control none --cache-control all --kernel-id :::1 -c 8"
       "$NCU" --profile-from-start off --set full --import-source yes --clock-control none --cache-control all \
         --kernel-id :::1 -c 8 -f -o "$REP" $PY "$HERE/probe.py" "$KERNEL" "$P" --dtype "$DT" --sha "$EXPECT" --ncu 2>&1 \
-        | grep -E "^==(ERROR|WARNING)==|Profiling \"" | grep -v "nvidia-smi"
-      if [ -f "$REP.ncu-repz" ]; then
+        | grep -E "^==(ERROR|WARNING)==|Profiling \"|MODULE STATE ERROR" | grep -v "nvidia-smi" | tee "$REP.log"
+      if grep -q "MODULE STATE ERROR" "$REP.log"; then
+        echo "NCU ERROR: kernel keeps module state between calls; no ncu-full row"
+      elif [ -f "$REP.ncu-repz" ]; then
         $PY "$HERE/ncu_digest.py" "$REP.ncu-repz" --ncu "$NCU"
         echo "RESULT {\"kind\": \"ncu-full\", \"kernel\": \"$KERNEL\", \"sha\": \"$EXPECT\", \"preset\": \"$P\", \"report\": \"$REP.ncu-repz\"}"
       else

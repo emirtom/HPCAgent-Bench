@@ -10,12 +10,19 @@ cudaProfilerStart/Stop (``--ncu``, run under ``ncu --profile-from-start off``) o
 Every call restores the inputs from a pristine device copy OUTSIDE the timed bracket, so in-place and
 accumulating kernels see the same data each time.
 Prints ``RESULT {...}`` with the preset's parameters, so roofline.py can evaluate a FLOP formula over them.
+
+Runtime state check (tests/test_triton_module_state.py is the static one): the kernel module's globals are
+snapshotted right after import and compared after every call has run. Any change (a new global, a rebound name, a
+container's contents, a tensor modified in place, a function attribute, default or cache) prints
+``MODULE STATE ERROR`` and exits 3 without a RESULT row. Triton's own JIT and autotune objects are exempt.
 """
 
 import argparse
 import importlib
 import json
 import statistics
+import sys
+import types
 
 import numpy as np
 import torch
@@ -41,6 +48,35 @@ data = bench.get_data(Preset[ns.preset.upper()], ns.dtype)
 params = {k: v for k, v in data.items() if isinstance(v, (int, float, np.integer, np.floating)) and k != "datatype"}
 mod = importlib.import_module(bench.impl_module("triton"))
 fn = getattr(mod, spec.func_name)
+
+
+def fingerprint(value: object) -> object:
+    """What must not change across calls for one module global."""
+    out: list[object] = [id(value), type(value).__qualname__]
+    if isinstance(value, (dict, list, set, frozenset, tuple, bytearray)):
+        out.append(repr(sorted(map(repr, value))) if isinstance(value, (set, frozenset)) else repr(value))
+    if isinstance(value, torch.Tensor):
+        out += [value.data_ptr(), value._version, tuple(value.shape)]
+    if isinstance(value, types.FunctionType):
+        out += [sorted(vars(value)), repr(value.__defaults__), repr(value.__kwdefaults__)]
+        out += [repr([c.cell_contents for c in value.__closure__ or ()])]
+    info = getattr(value, "cache_info", None)
+    if callable(info):
+        out.append(repr(info()))
+    return out
+
+
+def module_state() -> dict[str, object]:
+    return {
+        name: fingerprint(value)
+        for name, value in vars(mod).items()
+        if not (name.startswith("__") and name.endswith("__"))
+        and not isinstance(value, types.ModuleType)
+        and not type(value).__module__.startswith("triton")
+    }
+
+
+STATE_BEFORE = module_state()
 
 pristine = {}
 for name in spec.input_args:
@@ -92,4 +128,12 @@ else:
         times.append(a.elapsed_time(b))
     row["median_ms"] = statistics.median(times)
     row["min_ms"] = min(times)
+state_after = module_state()
+changed = sorted(n for n in STATE_BEFORE.keys() | state_after.keys() if STATE_BEFORE.get(n) != state_after.get(n))
+if changed:
+    print(
+        f"MODULE STATE ERROR: {ns.kernel}'s module globals changed across calls: {changed}. A kernel must keep no "
+        "state between calls (tests/test_triton_module_state.py)."
+    )
+    sys.exit(3)
 print("RESULT " + json.dumps(row))

@@ -92,6 +92,10 @@ def pct(v: float | None) -> str:
 
 def ncu_csv(kernel: str, sha: str, preset: str) -> None:
     raw = sys.stdin.read()
+    if "MODULE STATE ERROR" in raw:
+        # probe.py found state kept between calls: the profile is of a kernel that breaks the rule, so no row.
+        print("\n".join(line for line in raw.splitlines() if "MODULE STATE ERROR" in line))
+        sys.exit(1)
     probe = next((json.loads(m) for m in re.findall(r"^RESULT (\{.*\})$", raw, re.M)), {})
     body = "\n".join(line for line in raw.splitlines() if line.startswith('"'))
     rows = list(csv.DictReader(io.StringIO(body)))
