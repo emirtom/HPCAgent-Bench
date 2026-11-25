@@ -4,8 +4,9 @@
 #
 # Euler, CPU: the SC track's numba baseline for our Triton kernels, examples/sc_triton/cpu_baseline.sbatch adapted
 # to a guest account on the public share (48 cores, 128 GiB in total, no -A account). Euler's CPU nodes have 64- or
-# 96-core sockets, so a full socket does not fit: one rank takes 48 of the 64 cores of one AMD EPYC 7742 socket
-# (the CPU model of the sample). Report it as "48 of 64 cores of one EPYC 7742 socket".
+# 96-core sockets, so a full socket does not fit: each kernel runs on 48 cores of an AMD EPYC 7742 node (the CPU
+# model of the sample; the supervisor accepted 48 cores). Euler shares nodes, so the 48 may straddle both sockets:
+# binding.txt records where they landed, and the report states it.
 # Output: $RESULTS/canon.db (default $SCRATCH/sc-baseline), run label cpu-<COLUMN>, plus binding.txt.
 #   cd ~/HPCAgent-Bench && sbatch helpers/scripts/triton_pipeline/euler_cpu_baseline.sbatch            # L, our kernels
 #   PRESET=S sbatch --time=01:00:00 helpers/scripts/triton_pipeline/euler_cpu_baseline.sbatch          # quick check
@@ -39,7 +40,8 @@ column=${COLUMN:-numba}
 out=$HPCAGENT_BENCH_RESULTS_DIR/cpu-$column
 mkdir -p "$out"
 kernels=${KERNELS:-reduce_2d,ls3df_fragment_patch_density,ls3df_lda_xc_potential,rk4_ensemble,rk45_ensemble,conv_2d,harris_corner,laplacian_stencil_3d}
-# What the report needs next to the plot: machine, binding (all 48 cores must sit on one socket), toolchain, commit.
+# What the report needs next to the plot: machine, binding (which sockets the 48 cores landed on: Euler shares
+# nodes, so they may straddle both), toolchain, commit.
 {
   echo "host: $(hostname)  job: ${SLURM_JOB_ID:-}  commit: $(git rev-parse HEAD)  preset: ${PRESET:-L}  column: $column"
   lscpu | grep -E "Model name|Socket\(s\)|Core\(s\) per socket|NUMA node[0-9]+ CPU"
@@ -50,8 +52,22 @@ kernels=${KERNELS:-reduce_2d,ls3df_fragment_patch_density,ls3df_lda_xc_potential
   echo "gcc: $(gcc --version | head -1)  openblas: $(pkg-config --modversion openblas)  python: $(python --version)"
   echo "seal: ${HPCAGENT_BENCH_GRADING_SEAL:-on}  parent_clock: $HPCAGENT_BENCH_MEASUREMENT_PARENT_CLOCK"
 } | tee "$out/binding.txt"
-args=(--column "$column" --out-root "$out" --preset "${PRESET:-L}" --datatype fp32-if-allowed --kernels "$kernels")
-srun --ntasks=1 hpcagent-bench job baseline "${args[@]}" --phase begin
-srun --ntasks=1 --cpu-bind=cores hpcagent-bench job baseline "${args[@]}" --phase run
-srun --ntasks=1 hpcagent-bench job baseline "${args[@]}" --phase finish
-hpcagent-bench run-framework --summarize "$HPCAGENT_BENCH_RESULTS_DIR/canon.db" --canon-run "cpu-$column"
+# Not `job baseline`: it forks one worker per NUMA domain the task touches (jobs.task_slots, no setting), and on a
+# shared Euler node 48 cores span 4-6 uneven domains, so kernels were timed on 2-16 threads each. The supervisor
+# accepted 48 cores, so every kernel gets all 48: one run-framework per kernel into the same canon.db and run label
+# cpu-<column> that examples/sc_triton/gpu_triton.sbatch reads, with the sample's 20 timed reps (1 warm-up from
+# config). The OpenMP launch environment job baseline would set comes from flags.openmp_launch_env (thread limit =
+# cores owned); it must be in place before numpy loads, hence before the step starts.
+eval "$(python -c 'from hpcagent_bench import flags
+print("\n".join(f"export {k}={v}" for k, v in flags.openmp_launch_env().items()))')"
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+ulimit -s "$(ulimit -H -s)"
+echo "omp: OMP_THREAD_LIMIT=$OMP_THREAD_LIMIT OMP_NUM_THREADS=$OMP_NUM_THREADS OMP_STACKSIZE=$OMP_STACKSIZE" \
+  | tee -a "$out/binding.txt"
+db=$HPCAGENT_BENCH_RESULTS_DIR/canon.db
+for kernel in ${kernels//,/ }; do
+  # -e: a rerun times only the kernels without a validated row, as the sample's scripts do.
+  srun --ntasks=1 --cpu-bind=cores hpcagent-bench run-framework -f "$column" -b "$kernel" -p "${PRESET:-L}" \
+    -d fp32-if-allowed -r 20 -e --canon-db "$db" --canon-run "cpu-$column" || echo "baseline: $kernel FAILED"
+done
+hpcagent-bench run-framework --summarize "$db" --canon-run "cpu-$column"
