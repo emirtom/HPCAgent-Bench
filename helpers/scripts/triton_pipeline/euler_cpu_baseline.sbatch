@@ -34,10 +34,6 @@ export HPCAGENT_BENCH_RESULTS_DIR=${RESULTS:-$SCRATCH/sc-baseline}
 # The GPU rows come from the student cluster, whose ptrace_scope=2 forces the child clock (child-clock-v1);
 # canon rows of different timing protocols are never paired, so the baseline is timed the same way.
 export HPCAGENT_BENCH_MEASUREMENT_PARENT_CLOCK=false
-# judge.cpu_slots_per_node defaults to one worker per NUMA domain on a GPU-less node; the EPYC 7742 has 4 per socket,
-# so the 48 cores would be split into uneven workers (8/16/16/8 threads) and each kernel timed on a fraction of them.
-# One slot: every kernel runs with all 48 cores, the "one socket per rank" of the protocol.
-export HPCAGENT_BENCH_JUDGE_CPU_SLOTS_PER_NODE=1
 unshare --user true 2>/dev/null || export HPCAGENT_BENCH_GRADING_SEAL=false
 column=${COLUMN:-numba}
 out=$HPCAGENT_BENCH_RESULTS_DIR/cpu-$column
@@ -52,8 +48,7 @@ kernels=${KERNELS:-reduce_2d,ls3df_fragment_patch_density,ls3df_lda_xc_potential
     for c in $(seq "${cpu%-*}" "${cpu#*-}"); do cat "/sys/devices/system/cpu/cpu$c/topology/physical_package_id"; done
   done | sort | uniq -c | awk '{print "socket " $2 ": " $1 " cpus"}'
   echo "gcc: $(gcc --version | head -1)  openblas: $(pkg-config --modversion openblas)  python: $(python --version)"
-  echo "seal: ${HPCAGENT_BENCH_GRADING_SEAL:-on}  parent_clock: $HPCAGENT_BENCH_MEASUREMENT_PARENT_CLOCK" \
-    " cpu_slots_per_node: $HPCAGENT_BENCH_JUDGE_CPU_SLOTS_PER_NODE"
+  echo "seal: ${HPCAGENT_BENCH_GRADING_SEAL:-on}  parent_clock: $HPCAGENT_BENCH_MEASUREMENT_PARENT_CLOCK"
 } | tee "$out/binding.txt"
 args=(--column "$column" --out-root "$out" --preset "${PRESET:-L}" --datatype fp32-if-allowed --kernels "$kernels")
 srun --ntasks=1 hpcagent-bench job baseline "${args[@]}" --phase begin
