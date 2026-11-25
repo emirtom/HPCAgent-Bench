@@ -15,6 +15,7 @@ entry carries its reason and must still name a tracked file:
   requeue reruns the job id into the same run directory and stacks duplicate rows.
 * ``mem-zero``: every submittable batch script carries ``#SBATCH --mem=0``: without it the job's memory follows its
   CPU share, and on an APU (host and GPU share one pool) a step dies in the OOM killer with no traceback.
+  ``MEM_ZERO_EXEMPT`` names the scripts for a site that refuses ``--mem=0``, each with its reason.
 * ``scratch``: ``.scratch/`` tracks only its ``.gitkeep``.
 * ``gitignore``: no tracked file matches an ignore rule, except a hand override at a generated benchmark name.
 * ``gfx-literal``: AMD archs come from containers/images/gpu_arch.env, never spelled in builds,
@@ -179,6 +180,13 @@ def sbatch_header(text: str) -> list[str]:
 
 
 MEM_GUARD = "#SBATCH --mem=0"
+#: Batch scripts for a site whose submit filter refuses --mem=0, with the reason. The rule guards shared host/GPU
+#: memory pools; these run on CPU-only nodes and ask for memory per CPU instead.
+MEM_ZERO_EXEMPT = {
+    # Euler (ETH): its cli_filter rejects any per-node memory request, --mem=0 included ("Requesting memory by
+    # node is not supported. Use --mem-per-cpu."), even when the command line also passes --mem-per-cpu.
+    "helpers/scripts/triton_pipeline/euler_cpu_baseline.sbatch",
+}
 
 
 def batch_headers(files: list[str]) -> Iterator[tuple[str, list[str]]]:
@@ -204,7 +212,7 @@ def mem_zero(files: list[str]) -> list[str]:
     return [
         f"{rel}: batch script without `{MEM_GUARD}`"
         for rel, directives in batch_headers(files)
-        if not any(line.split()[:2] == MEM_GUARD.split() for line in directives)
+        if rel not in MEM_ZERO_EXEMPT and not any(line.split()[:2] == MEM_GUARD.split() for line in directives)
     ]
 
 

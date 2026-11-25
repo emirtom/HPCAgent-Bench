@@ -203,3 +203,16 @@ if __name__ == "__main__":
     test_the_private_address_and_prose_node_patterns()
     test_the_package_literal_scan_names_layout_joins_and_absolute_prefixes()
     test_the_root_climb_and_shell_patterns()
+
+
+def test_mem_zero_flags_a_batch_script_without_it_except_a_named_site_exemption() -> None:
+    module = rules()
+    exempt = next(iter(module.MEM_ZERO_EXEMPT))
+    header = "#!/bin/bash\n#SBATCH --ntasks=1\n#SBATCH --no-requeue\n"
+    files = {
+        "jobs/missing.sbatch": header + "srun true\n",
+        "jobs/guarded.sbatch": header + "#SBATCH --mem=0\nsrun true\n",
+        exempt: header + "#SBATCH --mem-per-cpu=2500M\nsrun true\n",
+    }
+    module.text_of = files.get
+    assert module.mem_zero(list(files)) == ["jobs/missing.sbatch: batch script without `#SBATCH --mem=0`"]
