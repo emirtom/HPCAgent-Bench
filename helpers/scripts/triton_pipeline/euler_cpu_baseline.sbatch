@@ -61,8 +61,13 @@ kernels=${KERNELS:-reduce_2d,ls3df_fragment_patch_density,ls3df_lda_xc_potential
 eval "$(python -c 'from hpcagent_bench import flags
 print("\n".join(f"export {k}={v}" for k, v in flags.openmp_launch_env().items()))')"
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+# judge.cpu_slots_per_node defaults to one slot per NUMA domain the task touches, and run-framework then times the
+# kernel in that multi-slot mode: on 48 cores over 3 domains, conv_2d at S took 23.9 ms (at 48 or 16 threads) and
+# 0.53 ms with one slot (diagnostic job 22381535). One slot = the kernel gets the whole 48-core allocation.
+export HPCAGENT_BENCH_JUDGE_CPU_SLOTS_PER_NODE=1
 ulimit -s "$(ulimit -H -s)"
 echo "omp: OMP_THREAD_LIMIT=$OMP_THREAD_LIMIT OMP_NUM_THREADS=$OMP_NUM_THREADS OMP_STACKSIZE=$OMP_STACKSIZE" \
+  " cpu_slots_per_node=$HPCAGENT_BENCH_JUDGE_CPU_SLOTS_PER_NODE" \
   | tee -a "$out/binding.txt"
 db=$HPCAGENT_BENCH_RESULTS_DIR/canon.db
 for kernel in ${kernels//,/ }; do
