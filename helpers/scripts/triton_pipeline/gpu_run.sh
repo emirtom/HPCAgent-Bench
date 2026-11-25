@@ -23,18 +23,24 @@
 # The revision check runs first and nothing is measured unless HEAD == expected SHA, the tree is clean, the
 # kernel's _triton.py exists and the GPU is an RTX 5060 Ti. The grading sandbox is disabled for harness steps
 # because the node's AppArmor policy (kernel.apparmor_restrict_unprivileged_userns=1) blocks user namespaces;
-# the user approved HPCAGENT_BENCH_GRADING_SEAL=false for compute-node harness runs only.
+# the user approved HPCAGENT_BENCH_GRADING_SEAL=false for compute-node harness runs only. The node also sets
+# kernel.yama.ptrace_scope=2, so v1.0.0's parent clock (process_vm_readv into the grading child) is refused and an
+# fp64 reference fails with "the trusted clock cannot run here"; HPCAGENT_BENCH_MEASUREMENT_PARENT_CLOCK=false makes
+# the child time itself (child-clock-v1), which is what every fp32 run (a host precision cast) already uses.
 set -u
 CHECKOUT=$1 EXPECT=$2 KERNEL=$3
 shift 3
 HERE=$(cd "$(dirname "$0")" && pwd -P)
 ulimit -c 0
 ulimit -s "$(ulimit -H -s)"
-export OMP_STACKSIZE=512M OMP_THREAD_LIMIT=$(nproc)
+export OMP_STACKSIZE=512M OMP_THREAD_LIMIT=$(nproc) HPCAGENT_BENCH_MEASUREMENT_PARENT_CLOCK=false
 export PATH=/scratch/users/emuete/bin:$PATH UV_CACHE_DIR=/scratch/users/emuete/.cache/uv
 cd "$CHECKOUT" || { echo "REVISION CHECK FAILED: no checkout $CHECKOUT"; exit 2; }
 
-KFILE=$(find hpcagent_bench/benchmarks -name "${KERNEL}_triton.py" | head -1)
+# By the kernel's folder, not its name: a renamed kernel keeps its old module_name (ls3df_fragment_patch_density
+# holds fragment_patch_density_triton.py).
+KDIR=$(find hpcagent_bench/benchmarks -type d -name "$KERNEL" | head -1)
+KFILE=$( [ -n "$KDIR" ] && find "$KDIR" -maxdepth 1 -name "*_triton.py" | head -1)
 HEAD_SHA=$(git rev-parse HEAD)
 STATUS=$(git status --porcelain)
 GPU=$(nvidia-smi --query-gpu=name,driver_version,compute_cap --format=csv,noheader | head -1)
